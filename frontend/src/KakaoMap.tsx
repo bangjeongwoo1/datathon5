@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { loadKakaoMaps } from './kakao'
+import { loadKakaoMaps, regionLabel } from './kakao'
 import type { Coordinates, MapCluster, MapClusterer, MapInstance, MapMarker, MapsSDK } from './kakao'
 import { merchants } from './merchants'
 import type { Merchant } from './merchants'
 import { selectCluster } from './mapClusters'
 import { markerSvg } from './markerIcon'
-import { buildPersistedPositions } from './mapPositions'
+import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
+import type { ViewportBounds } from './mapPositions'
 
 const CITY_HALL={lat:37.8813,lng:127.73}
 const colors:Record<string,string>={'일반음식점':'#2563eb','편의점':'#15957e','베이커리/간식':'#dc9341','마트':'#7c3aed'}
@@ -28,15 +29,23 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
  const [error,setError]=useState('')
  const [retry,setRetry]=useState(0)
  const [phase,setPhase]=useState('카카오맵을 불러오고 있습니다…')
+ const [viewport,setViewport]=useState<ViewportBounds|null>(null)
+ const [locationLabel,setLocationLabel]=useState('춘천시 가맹점 지도')
 
  useEffect(()=>{
   let cancelled=false
   let observer:ResizeObserver|undefined
   let clusterer:MapClusterer|undefined
+ let idleMap:MapInstance|undefined
+ let idleMaps:MapsSDK|undefined
+ let updateViewport:(()=>void)|undefined
+ let regionTimer:number|undefined
+ let regionRequest=0
   const host=container.current
   if(!host)return
-  setError('');setReady(null);setPhase('카카오맵을 불러오고 있습니다…')
+  setError('');setReady(null);setViewport(null);setPhase('카카오맵을 불러오고 있습니다…')
   loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||'').then(async maps=>{
+   idleMaps=maps
    if(cancelled)return
    const map=new maps.Map(host,{center:new maps.LatLng(CITY_HALL.lat,CITY_HALL.lng),level:4,keyboardShortcuts:true})
    map.setMinLevel(1);map.setMaxLevel(10)
@@ -46,6 +55,11 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
    })
    observer=new ResizeObserver(()=>{const center=map.getCenter();map.relayout();map.setCenter(center);clusterer?.redraw()})
    observer.observe(host)
+   const geocoder=new maps.services.Geocoder()
+   idleMap=map
+   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();setViewport({south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()});const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
+   maps.event.addListener(map,'idle',updateViewport)
+   updateViewport()
    setPhase('예시 매장 위치를 지도에 연결하고 있습니다…')
    const positions=await merchantPositions()
    if(cancelled)return
@@ -53,13 +67,14 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
   }).catch(()=>{
    if(!cancelled){setPhase('');setError('카카오맵을 불러오지 못했습니다. .env.local의 JavaScript 키, 현재 접속 주소의 SDK 도메인 등록, 카카오맵 사용 설정을 확인해 주세요.')}
   })
-  return()=>{cancelled=true;observer?.disconnect();clusterer?.clear();host.replaceChildren()}
+  return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);clusterer?.clear();host.replaceChildren()}
  },[retry])
 
  // Keep one SDK clusterer per map. Filtering changes its markers, not the instance.
  useEffect(()=>{
   if(!ready)return
   const {maps,map,clusterer,positions}=ready
+  if(!viewport)return
   const markerIds=new Map<MapMarker,number>()
   const disposers:(()=>void)[]=[]
   const keyboardTargets=new Set<HTMLElement>()
@@ -82,7 +97,7 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
   maps.event.addListener(clusterer,'clusterclick',onClusterClick)
   maps.event.addListener(clusterer,'clustered',onClustered)
   const entries:{marker:MapMarker;store:Merchant}[]=[]
-  for(const store of stores){
+  for(const store of filterStoresInBounds(stores,positions,viewport)){
    const coordinates=positions.get(store.id)
    if(!coordinates)continue
    const marker=new maps.Marker({position:new maps.LatLng(coordinates.lat,coordinates.lng),image:markerImage(maps,store,false),title:`${store.name} (예시 위치)`,clickable:true,zIndex:2})
@@ -100,7 +115,7 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
    for(const target of keyboardTargets)target.onkeydown=null
    disposers.forEach(dispose=>dispose());clusterer.clear();markerEntries.current=[]
   }
- },[ready,stores,onSelect,onClusterSelect])
+ },[ready,stores,viewport,onSelect,onClusterSelect])
 
  useEffect(()=>{
   if(!ready)return
@@ -120,7 +135,7 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
  },[ready,centerRequest])
  function changeZoom(change:number){if(!ready)return;const level=Math.max(1,Math.min(10,ready.map.getLevel()+change));ready.map.setLevel(level)}
  return <><div ref={container} className="kakao-map-canvas" aria-label="카카오맵 춘천시 가맹점 지도"/>
- <div className="map-location"><b>강원특별자치도 춘천시</b><span>중앙로 · 명동 일대</span></div>
+ <div className="map-location"><b>{locationLabel}</b></div>
  <div className="map-preview-label">카카오맵</div>
  <div className="map-cluster-hint">숫자 마커를 누르면 해당 지역의 가맹점만 볼 수 있어요.</div>
  {(phase||error)&&<div className="map-load-state" role={error?'alert':'status'}><strong>{error?'지도를 표시할 수 없습니다':'지도 연결 중'}</strong><p>{error||phase}</p>{error&&<button onClick={()=>{positionsPromise=null;setRetry(n=>n+1)}}>다시 시도</button>}</div>}

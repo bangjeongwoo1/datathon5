@@ -1,5 +1,6 @@
 export type Coordinates = { lat: number; lng: number }
 export type GeoResult = { x: string; y: string }
+export type RegionResult = { region_type: string; region_2depth_name: string; region_3depth_name: string }
 export function sdkUrl(key: string) {
  const value=key.trim()
  if(!value || /여기에|발급받은|입력|your.?key/i.test(value)) throw new Error('.env.local에 카카오 JavaScript 키를 입력해 주세요.')
@@ -16,11 +17,18 @@ export function parseCoordinates(results: GeoResult[]): Coordinates | null {
  const lat=Number(first.y),lng=Number(first.x)
  return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180?{lat,lng}:null
 }
+export function regionLabel(results: RegionResult[]) {
+ const region=results.find(result=>result.region_type==='H')??results[0]
+ const city=region?.region_2depth_name?.trim()||'춘천시'
+ const dong=region?.region_3depth_name?.trim()
+ return dong?`${city} 가맹점 지도 · ${dong}`:'춘천시 가맹점 지도'
+}
 export interface MapPosition { getLat(): number; getLng(): number }
+export interface MapBounds { getSouthWest(): MapPosition; getNorthEast(): MapPosition }
 export interface MapInstance {
  panTo(position:MapPosition):void; setCenter(position:MapPosition):void;
  setLevel(level:number):void; getLevel():number; getCenter():MapPosition;
- setMinLevel(level:number):void; setMaxLevel(level:number):void; relayout():void
+ getBounds():MapBounds; setMinLevel(level:number):void; setMaxLevel(level:number):void; relayout():void
 }
 export interface MapOverlay { setMap(map:MapInstance|null):void }
 export interface MapMarker extends MapOverlay {
@@ -42,15 +50,17 @@ export interface MapsSDK {
  MarkerImage:new(source:string,size:object)=>object
  Marker:new(options:{position:MapPosition;image:object;title:string;clickable:boolean;zIndex:number})=>MapMarker
  MarkerClusterer:new(options:{map:MapInstance;averageCenter:boolean;minLevel:number;gridSize:number;minClusterSize:number;disableClickZoom:boolean;styles:Record<string,string>[]})=>MapClusterer
- services:{Status:{OK:string};Geocoder:new()=>{addressSearch(address:string,callback:(result:GeoResult[],status:string)=>void):void}}
+ services:{Status:{OK:string};Geocoder:new()=>{addressSearch(address:string,callback:(result:GeoResult[],status:string)=>void):void;coord2RegionCode(x:number,y:number,callback:(result:RegionResult[],status:string)=>void):void}}
  event:{
   preventMap():void
   addListener(target:MapMarker,event:'click',handler:()=>void):void
   addListener(target:MapClusterer,event:'clusterclick',handler:(cluster:MapCluster)=>void):void
   addListener(target:MapClusterer,event:'clustered',handler:(clusters:MapCluster[])=>void):void
+  addListener(target:MapInstance,event:'idle',handler:()=>void):void
   removeListener(target:MapMarker,event:'click',handler:()=>void):void
   removeListener(target:MapClusterer,event:'clusterclick',handler:(cluster:MapCluster)=>void):void
   removeListener(target:MapClusterer,event:'clustered',handler:(clusters:MapCluster[])=>void):void
+  removeListener(target:MapInstance,event:'idle',handler:()=>void):void
  }
 }
 declare global { interface Window { kakao?:{maps:MapsSDK} } }
