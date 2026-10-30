@@ -1,7 +1,10 @@
+import NearestVoice from './NearestVoice'
+import { parseVoiceIntent } from './voiceIntent'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { scopeMerchants } from './mapClusters'
 import KakaoMap from './KakaoMap'
 import type { ReactNode } from 'react'
+import VoiceSearch from './VoiceSearch'
 import { filterMerchants, merchants } from './merchants'
 import type { Merchant } from './merchants'
 import './App.css'
@@ -12,6 +15,7 @@ function Icon({name,size=20}:{name:string;size?:number}) {
 const categories=['전체','한식','중식','일식','양식','제과점','편의점','마트']
 const color=(c:string)=>c==='편의점'?'green':c==='베이커리/간식'?'orange':c==='마트'?'purple':'blue'
 function App(){
+ const [voiceSearchRequest, setVoiceSearchRequest] = useState(0)
  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('전체')
  const [open,setOpen]=useState(false),[delivery,setDelivery]=useState(false),[distance,setDistance]=useState(false)
  const [selectionRequest,setSelectionRequest]=useState(0)
@@ -34,7 +38,34 @@ function App(){
  return <div className="portal">
  <header className="header"><a className="brand" href="#finder" onClick={reset}><span className="brand-icon"><Icon name="leaf" size={25}/></span><strong>오늘 뭐 먹지</strong></a><nav><a className="nav-active" href="#finder">가맹점 찾기</a></nav><div className="region-wrap"><button className="region-button" onClick={()=>setRegionOpen(!regionOpen)} aria-expanded={regionOpen}><Icon name="pin" size={17}/><span>지역 설정 <b>강원도 춘천시</b></span><Icon name="chevron" size={16}/></button>{regionOpen&&<div className="region-menu"><strong>서비스 지역</strong><button onClick={()=>{setRegionOpen(false);reset();setCenterRequest(n=>n+1)}}>강원특별자치도 춘천시 <span>✓</span></button><p>현재 시안은 춘천시의 예시 매장을 제공합니다.</p></div>}</div></header>
  <div className="announcement"><Icon name="info" size={17}/><strong>이용 안내</strong><p>배달 주문은 매장에 문의 후 이용하시기 바랍니다. <span>일부 가맹점은 포장 및 매장 식사만 지원됩니다.</span></p><span className="banner-tag">함께하는 따뜻한 한 끼</span></div>
- <main id="finder" className="split"><aside className="sidebar" aria-label="가맹점 검색 및 목록"><section className="search-section"><div className="eyebrow">우리 동네 든든한 한 끼</div><h1>어디서 먹을까요<span>?</span></h1><p className="intro">가까운 급식카드 가맹점을 찾아보세요.</p><form onSubmit={e=>{e.preventDefault();setSearch(query);setSelectedId(null);setClusterIds(null)}}><div className="search-input"><Icon name="search"/><input aria-label="가맹점 이름 또는 주소" placeholder="가맹점 이름, 주소로 검색" value={query} onChange={e=>setQuery(e.target.value)}/><button className="search-submit" type="submit" aria-label="검색"><Icon name="search"/></button></div><div className="search-meta"><span><Icon name="pin" size={13}/> 춘천시 전체</span><button type="button" onClick={reset}><Icon name="reset" size={13}/> 초기화</button></div></form><div className="data-note"><Icon name="info" size={14}/><span>지자체 공공데이터 연계를 위한 <b>디자인 시안</b></span></div></section>
+ <main id="finder" className="split"><aside className="sidebar" aria-label="가맹점 검색 및 목록"><section className="search-section"><div className="eyebrow">우리 동네 든든한 한 끼</div><h1>어디서 먹을까요<span>?</span></h1><p className="intro">가까운 급식카드 가맹점을 찾아보세요.</p><form onSubmit={e=>{e.preventDefault();setSearch(query);setSelectedId(null);setClusterIds(null)}}><div className="search-input"><Icon name="search"/><input aria-label="가맹점 이름 또는 주소" placeholder="가맹점 이름, 주소로 검색" value={query} onChange={e=>setQuery(e.target.value)}/><button className="search-submit" type="submit" aria-label="검색"><Icon name="search"/></button></div><div className="search-meta"><span><Icon name="pin" size={13}/> 춘천시 전체</span><button type="button" onClick={reset}><Icon name="reset" size={13}/> 초기화</button></div></form>
+<VoiceSearch
+  resultCount={filtered.length}
+  onRecognized={(text) => {
+    const intent = parseVoiceIntent(text)
+
+    setQuery(intent.query)
+    setSearch(intent.query)
+    setCategory(categories[intent.categoryIndex])
+
+    setOpen(false)
+    setDelivery(false)
+    setDistance(false)
+
+    setSelectedId(null)
+    setClusterIds(null)
+
+    // 음성 검색 완료 후 가까운 가맹점 자동 안내 요청
+    setVoiceSearchRequest(n => n + 1)
+  }}
+/>
+
+<NearestVoice
+  stores={filtered}
+  trigger={voiceSearchRequest}
+/>
+
+<div className="data-note"><Icon name="info" size={14}/><span>지자체 공공데이터 연계를 위한 <b>디자인 시안</b></span></div></section>
  <section className="filter-section" aria-label="검색 필터"><div className="chips">{categories.map(c=><button key={c} className={category===c?'chip active':'chip'} aria-pressed={category===c} onClick={()=>{setCategory(c);setClusterIds(null);setSelectedId(null)}}>{c}</button>)}</div><div className="checks"><label><input type="checkbox" checked={open} onChange={e=>{setOpen(e.target.checked);setClusterIds(null);setSelectedId(null)}}/>현재 영업중</label><label><input type="checkbox" checked={delivery} onChange={e=>{setDelivery(e.target.checked);setClusterIds(null);setSelectedId(null)}}/>배달가능 매장</label></div></section><div className="results-heading" ref={resultsHeading} tabIndex={-1}><span>{clusterIds===null?'주변 가맹점':'선택 지역 가맹점'} <b>{visible.length}</b><small>곳</small></span><button onClick={()=>setDistance(!distance)} aria-pressed={distance}>↕ {distance?'거리순 (시청 기준)':'기본순'} <Icon name="chevron" size={13}/></button></div>
  {clusterIds!==null&&<div className="cluster-selection"><span><Icon name="pin" size={14}/>선택한 묶음의 가맹점 {visible.length}곳</span><button onClick={clearRegion}>전체 목록 보기 ×</button></div>}
  <div className="store-list" aria-live="polite">{!visible.length?<div className="empty"><Icon name="search" size={32}/><h3>검색 결과가 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p><button onClick={reset}>필터 초기화</button></div>:visible.map(s=><article key={s.id} className={`store-card ${selectedId===s.id?'selected':''}`}><div className="store-top"><span className={`category-label ${color(s.category)}`}>{s.category}</span><span className={`status ${s.open?'':'closed'}`}>● {s.open?'영업중':'영업종료'}</span></div><button className="store-title" aria-pressed={selectedId===s.id} onClick={()=>{setSelectedId(s.id);setSelectionRequest(n=>n+1)}}>{s.name}<span>›</span></button><p className="store-address">{s.address}</p><div className="store-details"><span>{s.phone} <small>(예시)</small></span><span>{s.distance}m</span></div><div className="menu-tags"><span className="meal-tag">급식카드 추천</span>{s.menu.map(m=><span key={m}>{m}</span>)}</div><div className="store-actions"><button onClick={()=>route(s)}><Icon name="arrow" size={15}/> 길찾기 ↗</button><button onClick={phone}><Icon name="phone" size={14}/> 전화 안내</button>{s.delivery&&<span className="delivery-tag">배달 가능</span>}</div></article>)}</div><div className="sidebar-bottom"><Icon name="info" size={13}/> 매장·거리·가격·영업 상태는 모두 예시 정보입니다.</div></aside>
