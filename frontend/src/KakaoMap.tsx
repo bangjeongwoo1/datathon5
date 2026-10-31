@@ -7,6 +7,8 @@ import { selectCluster } from './mapClusters'
 import { markerSvg } from './markerIcon'
 import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
 import type { ViewportBounds } from './mapPositions'
+import { requestCurrentLocation } from './userLocation'
+import { moveMapToCurrentLocation } from './mapCurrentLocation'
 
 const CITY_HALL={lat:37.8813,lng:127.73}
 const colors:Record<string,string>={'일반음식점':'#2563eb','편의점':'#15957e','베이커리/간식':'#dc9341','마트':'#7c3aed'}
@@ -25,6 +27,7 @@ function markerImage(maps:MapsSDK,store:Merchant,selected:boolean){
 export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,centerRequest,selectionRequest}:Props){
  const container=useRef<HTMLDivElement>(null)
  const markerEntries=useRef<{marker:MapMarker;store:Merchant}[]>([])
+ const currentLocationMarker=useRef<MapMarker|null>(null)
  const [ready,setReady]=useState<ReadyMap|null>(null)
  const [error,setError]=useState('')
  const [retry,setRetry]=useState(0)
@@ -60,6 +63,20 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
    updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();setViewport({south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()});const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
    maps.event.addListener(map,'idle',updateViewport)
    updateViewport()
+   requestCurrentLocation().then(position=>{
+    if(cancelled)return
+    currentLocationMarker.current?.setMap(null)
+    currentLocationMarker.current=new maps.Marker({
+     position:new maps.LatLng(position.lat,position.lng),
+     title:'현재 위치',
+     clickable:false,
+     zIndex:6,
+    })
+    currentLocationMarker.current.setMap(map)
+    moveMapToCurrentLocation(map,maps,position)
+   }).catch(()=>{
+    // 위치 권한을 거부하거나 좌표를 받지 못하면 기존 춘천시 중심 화면을 유지한다.
+   })
    setPhase('예시 매장 위치를 지도에 연결하고 있습니다…')
    const positions=await merchantPositions()
    if(cancelled)return
@@ -67,7 +84,7 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
   }).catch(()=>{
    if(!cancelled){setPhase('');setError('카카오맵을 불러오지 못했습니다. .env.local의 JavaScript 키, 현재 접속 주소의 SDK 도메인 등록, 카카오맵 사용 설정을 확인해 주세요.')}
   })
-  return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);clusterer?.clear();host.replaceChildren()}
+  return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);currentLocationMarker.current?.setMap(null);currentLocationMarker.current=null;clusterer?.clear();host.replaceChildren()}
  },[retry])
 
  // Keep one SDK clusterer per map. Filtering changes its markers, not the instance.
@@ -133,12 +150,21 @@ export default function KakaoMap({stores,selectedId,onSelect,onClusterSelect,cen
   if(!ready||!centerRequest)return
   ready.map.setLevel(4);ready.map.panTo(new ready.maps.LatLng(CITY_HALL.lat,CITY_HALL.lng))
  },[ready,centerRequest])
+ function moveToCurrentLocation(){
+  if(!ready)return
+  requestCurrentLocation().then(position=>{
+   currentLocationMarker.current?.setMap(null)
+   currentLocationMarker.current=new ready.maps.Marker({position:new ready.maps.LatLng(position.lat,position.lng),title:'현재 위치',clickable:false,zIndex:6})
+   currentLocationMarker.current.setMap(ready.map)
+   moveMapToCurrentLocation(ready.map,ready.maps,position)
+  }).catch(()=>setLocationLabel('현재 위치를 확인하지 못했습니다. 위치 권한을 확인해 주세요.'))
+ }
  function changeZoom(change:number){if(!ready)return;const level=Math.max(1,Math.min(10,ready.map.getLevel()+change));ready.map.setLevel(level)}
  return <><div ref={container} className="kakao-map-canvas" aria-label="카카오맵 춘천시 가맹점 지도"/>
  <div className="map-location"><b>{locationLabel}</b></div>
  <div className="map-preview-label">카카오맵</div>
  <div className="map-cluster-hint">숫자 마커를 누르면 해당 지역의 가맹점만 볼 수 있어요.</div>
  {(phase||error)&&<div className="map-load-state" role={error?'alert':'status'}><strong>{error?'지도를 표시할 수 없습니다':'지도 연결 중'}</strong><p>{error||phase}</p>{error&&<button onClick={()=>{positionsPromise=null;setRetry(n=>n+1)}}>다시 시도</button>}</div>}
- {ready&&<div className="map-controls"><button aria-label="춘천시청 기준 위치로 이동" title="춘천시청 기준 위치" onClick={()=>{ready.map.setLevel(4);ready.map.panTo(new ready.maps.LatLng(CITY_HALL.lat,CITY_HALL.lng))}}>◎</button><div><button aria-label="지도 확대" onClick={()=>changeZoom(-1)}>+</button><button aria-label="지도 축소" onClick={()=>changeZoom(1)}>−</button></div></div>}
+ {ready&&<div className="map-controls"><button aria-label="현재 위치로 이동" title="현재 위치로 이동" onClick={moveToCurrentLocation}>◎</button><div><button aria-label="지도 확대" onClick={()=>changeZoom(-1)}>+</button><button aria-label="지도 축소" onClick={()=>changeZoom(1)}>−</button></div></div>}
  </>
 }
