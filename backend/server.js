@@ -21,6 +21,7 @@ const groq = new Groq({
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:5174",
   process.env.FRONTEND_URL?.replace(/\/+$/, ""),
 ].filter(Boolean);
 
@@ -193,10 +194,14 @@ app.post('/api/walking-nearest', async (req, res) => {
         }
       );
 
-      if (!response.ok) {
-        console.error('TMAP 응답 오류:', response.status);
-        return null;
-      }
+    if (!response.ok) {
+  const errorMessage = await response.text();
+
+  console.error('TMAP 응답 상태:', response.status);
+  console.error('TMAP 상세 오류:', errorMessage);
+
+  return null;
+}
 
       const data = await response.json();
 
