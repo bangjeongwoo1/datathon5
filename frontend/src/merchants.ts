@@ -6,7 +6,7 @@ export type Merchant = MerchantRecord
 
 export const merchants: Merchant[] = sourceMerchants.map(toMerchant)
 
-export type Filters = { query: string; category: string; open?: boolean; delivery?: boolean; distance?: boolean }
+export type Filters = { query: string; category: string; distance?: boolean }
 
 export function filterMerchants(items: Merchant[], filters: Filters) {
   const query = filters.query.trim().toLocaleLowerCase()
