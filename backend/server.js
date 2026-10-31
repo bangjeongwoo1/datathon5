@@ -19,7 +19,12 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-app.use(cors({ origin: "http://localhost:5173" }));
+const allowedOrigins = [
+  "http://localhost:5173",
+  process.env.FRONTEND_URL?.replace(/\/+$/, ""),
+].filter(Boolean);
+
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 // 음성 파일은 메모리에 임시 보관
