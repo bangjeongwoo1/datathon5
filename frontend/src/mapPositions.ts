@@ -11,7 +11,7 @@ export function buildPersistedPositions(stores: Merchant[]): Map<number, Coordin
   )
 }
 
-export function filterStoresInBounds(stores: Merchant[], positions: Map<number, Coordinates>, bounds: ViewportBounds): Merchant[] {
+export function filterStoresInBounds<T extends Merchant>(stores: T[], positions: Map<number, Coordinates>, bounds: ViewportBounds): T[] {
   return stores.filter((store) => {
     const point = positions.get(store.id)
     return point !== undefined
