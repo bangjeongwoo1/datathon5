@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Merchant } from './merchants'
+import { apiUrl } from './apiUrl'
 
 type Props = {
   stores: Merchant[]
@@ -58,7 +59,7 @@ export default function NearestVoice({ stores, trigger }: Props) {
       async (position) => {
         try {
           const response = await fetch(
-            'http://localhost:3001/api/walking-nearest',
+            apiUrl('/api/walking-nearest'),
             {
               method: 'POST',
               headers: {

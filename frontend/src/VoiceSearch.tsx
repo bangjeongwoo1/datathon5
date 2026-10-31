@@ -1,5 +1,6 @@
 
 import { useRef, useState } from 'react'
+import { apiUrl } from './apiUrl'
 type VoiceSearchProps = {
   onRecognized: (text: string) => void
   resultCount: number
@@ -55,7 +56,7 @@ export default function VoiceSearch({
         setLoading(true)
 
         try {
-          const response = await fetch('http://localhost:3001/api/stt', {
+          const response = await fetch(apiUrl('/api/stt'), {
             method: 'POST',
             body: formData,
           })
