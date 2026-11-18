@@ -14,6 +14,9 @@ export type MerchantRecord = {
   category: string
   rawCategory: string
   detailCategory: string
+  phone?: string
+  menu?: string[]
+  delivery?: boolean
   coordinates?: { lat: number; lng: number }
 }
 

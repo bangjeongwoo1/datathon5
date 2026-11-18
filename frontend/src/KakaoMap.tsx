@@ -7,7 +7,6 @@ import { markerSvg } from './markerIcon'
 import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
 import type { ViewportBounds } from './mapPositions'
 import { requestCurrentLocation } from './userLocation'
-import { moveMapToCurrentLocation } from './mapCurrentLocation'
 
 const CITY_HALL={lat:37.8813,lng:127.73}
 
@@ -31,6 +30,7 @@ type Props = {
   onClusterSelect: (ids: number[]) => void
   centerRequest: number
   selectionRequest: number
+  onLocationChange?: (position: { lat: number; lng: number }) => void
 }
 type ReadyMap = {
   maps: MapsSDK
@@ -51,6 +51,7 @@ export default function KakaoMap({
   onClusterSelect,
   centerRequest,
   selectionRequest,
+  onLocationChange,
 }: Props) {
  const container=useRef<HTMLDivElement>(null)
  const markerEntries=useRef<{marker:MapMarker;store:Merchant}[]>([])
@@ -78,6 +79,7 @@ export default function KakaoMap({
   Promise.all([loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||''),requestCurrentLocation().catch(()=>null)]).then(async ([maps,initialLocation])=>{
    idleMaps=maps
    if(cancelled)return
+   if (initialLocation) onLocationChange?.(initialLocation)
    const map = new maps.Map(host, {
   center: new maps.LatLng(CITY_HALL.lat, CITY_HALL.lng),
   level: 4,
@@ -92,7 +94,7 @@ export default function KakaoMap({
    observer.observe(host)
    const geocoder=new maps.services.Geocoder()
    idleMap=map
-   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();const nextBounds={south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()};setViewport(nextBounds);onViewportChange(nextBounds);const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
+   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();const nextBounds={south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()};setViewport(nextBounds);const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
    maps.event.addListener(map,'idle',updateViewport)
    updateViewport()
    if (cancelled) return
@@ -102,7 +104,7 @@ export default function KakaoMap({
    if(!cancelled){setPhase('');setError('카카오맵을 불러오지 못했습니다. .env.local의 JavaScript 키, 현재 접속 주소의 SDK 도메인 등록, 카카오맵 사용 설정을 확인해 주세요.')}
   })
   return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);currentLocationMarker.current?.setMap(null);currentLocationMarker.current=null;clusterer?.clear();host.replaceChildren()}
- },[retry,onLocationChange,onViewportChange])
+ },[retry,onLocationChange])
 
  // Keep one SDK clusterer per map. Filtering changes its markers, not the instance.
  useEffect(()=>{

@@ -2,9 +2,6 @@ import NearestVoice from './NearestVoice'
 import { parseVoiceIntent } from './voiceIntent'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { scopeMerchants } from './mapClusters'
-import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
-import type { ViewportBounds } from './mapPositions'
-const merchantPositions=buildPersistedPositions(merchants)
 import KakaoMap from './KakaoMap'
 import type { ReactNode } from 'react'
 import VoiceSearch from './VoiceSearch'
@@ -13,9 +10,7 @@ import { loadRegionMerchants } from './merchantApi'
 import type { Merchant } from './merchants'
 import './App.css'
 import './MerchantList.css'
-import { merchantPage, LIST_PAGE_SIZE } from './merchantPage'
 import type { Coordinates } from './kakao'
-import { withDistances, sortByDistance, formatStraightDistance } from './merchantDistance'
 function Icon({name,size=20}:{name:string;size?:number}) {
  const paths:Record<string,ReactNode>={search:<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></>,pin:<><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,arrow:<><path d="m4 10 16-6-6 16-3-7-7-3Z"/><path d="m11 13 9-9"/></>,phone:<path d="m7 3 3 5-3 3c2 3 3 4 6 6l3-3 5 3c0 5-4 5-7 3C7 17 3 12 3 7c0-3 2-4 4-4Z"/>,clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,reset:<><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></>,target:<><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></>,info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></>,leaf:<><path d="M20 3C8 1 2 7 5 15c8 5 16-1 15-12Z"/><path d="M3 21 15 9"/></>,chevron:<path d="m7 10 5 5 5-5"/>}
  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]||paths.pin}</svg>
@@ -60,7 +55,7 @@ function App(){
  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('전체')
  const [distance,setDistance]=useState(false)
  const [userLocation,setUserLocation]=useState<Coordinates|null>(null)
- const receiveLocation=useCallback((position:Coordinates)=>{setUserLocation(position);setDistance(true);setClusterIds(null);setSelectedId(null)},[])
+
  const [selectionRequest,setSelectionRequest]=useState(0)
  const [selectedId, setSelectedId] = useState<number | null>(null)
 const [regionOpen, setRegionOpen] = useState(false)
@@ -69,25 +64,40 @@ const [centerRequest] = useState(0)
  const policyTrigger=useRef<HTMLButtonElement|null>(null)
  const closePolicy=()=>{setPolicy(null);policyTrigger.current?.focus()}
  const [clusterIds,setClusterIds]=useState<number[]|null>(null)
+
+const receiveLocation = useCallback((position: Coordinates) => {
+  setUserLocation(position)
+  setDistance(true)
+  setClusterIds(null)
+  setSelectedId(null)
+}, [setUserLocation, setDistance, setClusterIds, setSelectedId])
+
  const resultsHeading=useRef<HTMLDivElement>(null)
 const filtered = useMemo(
   () => filterMerchants(merchants, {
     query: search,
     category,
-    open,
-    delivery,
     distance,
   }),
-  [merchants, search, category, open, delivery, distance]
+  [merchants, search, category, distance]
 )
  const visible=useMemo(()=>scopeMerchants(filtered,clusterIds),[filtered,clusterIds])
 
- const selectStore=useCallback((id:number)=>{setSelectedId(id);setClusterIds(ids=>ids?.includes(id)?ids:null)},[])
- const selectRegion=useCallback((ids:number[])=>{setClusterIds(ids);setSelectedId(null)},[])
+
+const selectStore = useCallback((id: number) => {
+  setSelectedId(id)
+  setClusterIds(ids => ids?.includes(id) ? ids : null)
+}, [setSelectedId, setClusterIds])
+
+const selectRegion = useCallback((ids: number[]) => {
+  setClusterIds(ids)
+  setSelectedId(null)
+}, [setClusterIds, setSelectedId])
+
  useEffect(()=>{if(clusterIds!==null)resultsHeading.current?.focus()},[clusterIds])
  const clearRegion=()=>{setClusterIds(null);setSelectedId(null);requestAnimationFrame(()=>resultsHeading.current?.focus())}
  const selected=visible.find(s=>s.id===selectedId)
- const reset=()=>{setQuery('');setSearch('');setCategory('전체');setOpen(false);setDelivery(false);setDistance(false);setSelectedId(null);setClusterIds(null)}
+ const reset=()=>{setQuery('');setSearch('');setCategory('전체');setDistance(false);setSelectedId(null);setClusterIds(null)}
 
 
 const changeRegion = (nextRegion: Region) => {
@@ -263,10 +273,10 @@ onClick={() => {
   영업 여부 미확인
 </span></div><button className="store-title" aria-pressed={selectedId===s.id} onClick={()=>{setSelectedId(s.id);setSelectionRequest(n=>n+1)}}>{s.name}<span>›</span></button><p className="store-address">{s.address}</p><div className="store-details">
   {s.phone && <span>{s.phone}</span>}
-</div><div className="menu-tags"><span className="meal-tag">방문 전 카드 사용 여부 확인</span>{s.menu.map(m=><span key={m}>{m}</span>)}</div><div className="store-actions"><button onClick={()=>route(s)}><Icon name="arrow" size={15}/> 길찾기 ↗</button><button onClick={() => phone(s)}>
+</div><div className="menu-tags"><span className="meal-tag">방문 전 카드 사용 여부 확인</span>{s.menu?.map(m=><span key={m}>{m}</span>)}</div><div className="store-actions"><button onClick={()=>route(s)}><Icon name="arrow" size={15}/> 길찾기 ↗</button><button onClick={() => phone(s)}>
   <Icon name="phone" size={14}/> 전화 안내
 </button>{s.delivery&&<span className="delivery-tag">배달 가능</span>}</div></article>)}</div><div className="sidebar-bottom"><Icon name="info" size={13}/> 매장·거리·가격·영업 상태는 모두 예시 정보입니다.</div></aside>
- <section className="map" aria-label="춘천 중심부 카카오 지도"><KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest}/>
+ <section className="map" aria-label="춘천 중심부 카카오 지도"><KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} onLocationChange={receiveLocation}/>
  {selected&&<div className="map-popup"><div className="popup-head"><span className="popup-kicker">
   선택한 가맹점 <span>공공데이터 기반</span>
 </span><button aria-label="매장 상세 닫기" onClick={()=>setSelectedId(null)}>×</button></div><div className="popup-title"><span className="popup-icon"><Icon name="pin" size={23}/></span><div><h2>{selected.name}</h2><p>{selected.category} <span>·</span> <b>영업 여부 미확인</b></p></div></div><div className="popup-info"><p><Icon name="pin" size={16}/>{selected.address}</p>{selected.phone && (
@@ -274,7 +284,7 @@ onClick={() => {
     <Icon name="phone" size={16}/>
     {selected.phone}
   </p>
-)}</div><div className="popup-meal"><span>든든한 한 끼 추천</span><strong>{selected.menu.join(' · ')}</strong></div><div className="popup-actions"><button onClick={()=>route(selected)}><Icon name="arrow" size={17}/>길찾기 ↗</button><button onClick={() => phone(selected)}>
+)}</div><div className="popup-meal"><span>든든한 한 끼 추천</span><strong>{selected.menu?.join(' · ') ?? ''}</strong></div><div className="popup-actions"><button onClick={()=>route(selected)}><Icon name="arrow" size={17}/>길찾기 ↗</button><button onClick={() => phone(selected)}>
   <Icon name="phone" size={16}/>전화 안내
 </button></div><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
  <div className="map-legend"><strong>가맹점 유형</strong><span><i className="blue"/>일반음식점</span><span><i className="green"/>편의점</span><span><i className="orange"/>베이커리/간식</span><span><i className="purple"/>마트</span></div></section></main>
