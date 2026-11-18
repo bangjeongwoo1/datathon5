@@ -24,7 +24,7 @@ test('cluster IDs use marker identity, deduplicate members and ignore unknown ma
  selectCluster({getMarkers:()=>[unknown],getCenter:()=>({})},new Map(),{getLevel:()=>1,setLevel:()=>assert.fail(),panTo:()=>assert.fail()},()=>assert.fail())
 })
 test('cluster scope intersects filters, preserves sort and can restore the full filtered list',()=>{
- const filtered=filterMerchants(merchants,{query:'',category:'일반음식점',open:true,delivery:false,distance:true})
+ const filtered=filterMerchants(merchants,{query:'',category:'일반음식점',distance:true})
  const group=[1,3,7,8,9,10,11]
  const scoped=scopeMerchants(filtered,group)
  assert.deepEqual(scoped,filtered.filter(store=>group.includes(store.id)))

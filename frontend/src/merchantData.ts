@@ -14,13 +14,6 @@ export type MerchantRecord = {
   category: string
   rawCategory: string
   detailCategory: string
-  /** Legacy UI fields have no workbook source and remain hidden. */
-  open: boolean
-  delivery: boolean
-  menu: string[]
-  hours: string
-  distance: number
-  phone?: string
   coordinates?: { lat: number; lng: number }
 }
 
@@ -44,11 +37,6 @@ export function toMerchant(source: SourceMerchant): MerchantRecord {
     category: toUiCategory(industry),
     rawCategory: industry,
     detailCategory: detail,
-    open: false,
-    delivery: false,
-    menu: [],
-    hours: '',
-    distance: 0,
   }
 }
 

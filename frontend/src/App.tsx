@@ -2,6 +2,9 @@ import NearestVoice from './NearestVoice'
 import { parseVoiceIntent } from './voiceIntent'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { scopeMerchants } from './mapClusters'
+import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
+import type { ViewportBounds } from './mapPositions'
+const merchantPositions=buildPersistedPositions(merchants)
 import KakaoMap from './KakaoMap'
 import type { ReactNode } from 'react'
 import VoiceSearch from './VoiceSearch'
@@ -9,6 +12,10 @@ import { filterMerchants } from './merchants'
 import { loadRegionMerchants } from './merchantApi'
 import type { Merchant } from './merchants'
 import './App.css'
+import './MerchantList.css'
+import { merchantPage, LIST_PAGE_SIZE } from './merchantPage'
+import type { Coordinates } from './kakao'
+import { withDistances, sortByDistance, formatStraightDistance } from './merchantDistance'
 function Icon({name,size=20}:{name:string;size?:number}) {
  const paths:Record<string,ReactNode>={search:<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></>,pin:<><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,arrow:<><path d="m4 10 16-6-6 16-3-7-7-3Z"/><path d="m11 13 9-9"/></>,phone:<path d="m7 3 3 5-3 3c2 3 3 4 6 6l3-3 5 3c0 5-4 5-7 3C7 17 3 12 3 7c0-3 2-4 4-4Z"/>,clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,reset:<><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></>,target:<><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></>,info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></>,leaf:<><path d="M20 3C8 1 2 7 5 15c8 5 16-1 15-12Z"/><path d="M3 21 15 9"/></>,chevron:<path d="m7 10 5 5 5-5"/>}
  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]||paths.pin}</svg>
@@ -51,7 +58,9 @@ function App(){
 
  const [voiceSearchRequest, setVoiceSearchRequest] = useState(0)
  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('전체')
- const [open,setOpen]=useState(false),[delivery,setDelivery]=useState(false),[distance,setDistance]=useState(false)
+ const [distance,setDistance]=useState(false)
+ const [userLocation,setUserLocation]=useState<Coordinates|null>(null)
+ const receiveLocation=useCallback((position:Coordinates)=>{setUserLocation(position);setDistance(true);setClusterIds(null);setSelectedId(null)},[])
  const [selectionRequest,setSelectionRequest]=useState(0)
  const [selectedId, setSelectedId] = useState<number | null>(null)
 const [regionOpen, setRegionOpen] = useState(false)
@@ -221,7 +230,7 @@ onClick={() => {
  <div className="announcement"><Icon name="info" size={17}/><strong>이용 안내</strong><p>배달 주문은 매장에 문의 후 이용하시기 바랍니다. <span>일부 가맹점은 포장 및 매장 식사만 지원됩니다.</span></p><span className="banner-tag">함께하는 따뜻한 한 끼</span></div>
  <main id="finder" className="split"><aside className="sidebar" aria-label="가맹점 검색 및 목록"><section className="search-section"><div className="eyebrow">우리 동네 든든한 한 끼</div><h1>어디서 먹을까요<span>?</span></h1><p className="intro">가까운 급식카드 가맹점을 찾아보세요.</p><form onSubmit={e=>{e.preventDefault();setSearch(query);setSelectedId(null);setClusterIds(null)}}><div className="search-input"><Icon name="search"/><input aria-label="가맹점 이름 또는 주소" placeholder="가맹점 이름, 주소로 검색" value={query} onChange={e=>setQuery(e.target.value)}/><button className="search-submit" type="submit" aria-label="검색"><Icon name="search"/></button></div><div className="search-meta"><span><Icon name="pin" size={13}/> {region} 전체</span><button type="button" onClick={reset}><Icon name="reset" size={13}/> 초기화</button></div></form>
 <VoiceSearch
-  resultCount={filtered.length}
+  resultCount={visible.length}
   onRecognized={(text) => {
     const intent = parseVoiceIntent(text)
 
@@ -229,9 +238,7 @@ onClick={() => {
     setSearch(intent.query)
     setCategory(intent.category)
 
-    setOpen(false)
-    setDelivery(false)
-    setDistance(false)
+    setDistance(Boolean(userLocation))
 
     setSelectedId(null)
     setClusterIds(null)

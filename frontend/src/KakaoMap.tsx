@@ -6,6 +6,8 @@ import { selectCluster } from './mapClusters'
 import { markerSvg } from './markerIcon'
 import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
 import type { ViewportBounds } from './mapPositions'
+import { requestCurrentLocation } from './userLocation'
+import { moveMapToCurrentLocation } from './mapCurrentLocation'
 
 const CITY_HALL={lat:37.8813,lng:127.73}
 
@@ -39,7 +41,7 @@ type ReadyMap = {
 function markerImage(maps:MapsSDK,store:Merchant,selected:boolean){
  const fill=colors[store.category]||'#2563eb'
  const svg=markerSvg(fill)
- return new maps.MarkerImage(`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,new maps.Size(selected?44:34,selected?53:41))
+ return new maps.MarkerImage(`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,new maps.Size(selected?36:28,selected?46:36))
 }
 export default function KakaoMap({
   stores,
@@ -52,6 +54,7 @@ export default function KakaoMap({
 }: Props) {
  const container=useRef<HTMLDivElement>(null)
  const markerEntries=useRef<{marker:MapMarker;store:Merchant}[]>([])
+ const currentLocationMarker=useRef<MapMarker|null>(null)
  const [ready,setReady]=useState<ReadyMap|null>(null)
  const [error,setError]=useState('')
  const [retry,setRetry]=useState(0)
@@ -71,7 +74,8 @@ export default function KakaoMap({
   const host=container.current
   if(!host)return
   setError('');setReady(null);setViewport(null);setPhase('카카오맵을 불러오고 있습니다…')
-  loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||'').then(async maps=>{
+  setPhase('현재 위치와 카카오맵을 확인하고 있습니다…')
+  Promise.all([loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||''),requestCurrentLocation().catch(()=>null)]).then(async ([maps,initialLocation])=>{
    idleMaps=maps
    if(cancelled)return
    const map = new maps.Map(host, {
@@ -84,11 +88,11 @@ export default function KakaoMap({
     map,averageCenter:true,minLevel:4,gridSize:80,minClusterSize:2,disableClickZoom:true,
     styles:[{width:'56px',height:'56px',background:'#2563eb',color:'#fff',textAlign:'center',lineHeight:'44px',fontSize:'17px',fontWeight:'700',border:'6px solid #a9c5ff',borderRadius:'50%',boxSizing:'border-box',boxShadow:'0 3px 12px #1d4ed830',cursor:'pointer'}],
    })
-   observer=new ResizeObserver(()=>{const center=map.getCenter();map.relayout();map.setCenter(center);clusterer?.redraw()})
+   observer=new ResizeObserver(()=>{const center=map.getCenter();map.relayout();map.setCenter(center);clusterer?.redraw();updateViewport?.()})
    observer.observe(host)
    const geocoder=new maps.services.Geocoder()
    idleMap=map
-   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();setViewport({south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()});const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
+   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();const nextBounds={south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()};setViewport(nextBounds);onViewportChange(nextBounds);const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
    maps.event.addListener(map,'idle',updateViewport)
    updateViewport()
    if (cancelled) return
@@ -97,8 +101,8 @@ export default function KakaoMap({
   }).catch(()=>{
    if(!cancelled){setPhase('');setError('카카오맵을 불러오지 못했습니다. .env.local의 JavaScript 키, 현재 접속 주소의 SDK 도메인 등록, 카카오맵 사용 설정을 확인해 주세요.')}
   })
-  return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);clusterer?.clear();host.replaceChildren()}
- },[retry])
+  return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);currentLocationMarker.current?.setMap(null);currentLocationMarker.current=null;clusterer?.clear();host.replaceChildren()}
+ },[retry,onLocationChange,onViewportChange])
 
  // Keep one SDK clusterer per map. Filtering changes its markers, not the instance.
  useEffect(()=>{
@@ -131,7 +135,7 @@ export default function KakaoMap({
   for(const store of filterStoresInBounds(stores,positions,viewport)){
    const coordinates=positions.get(store.id)
    if(!coordinates)continue
-   const marker=new maps.Marker({position:new maps.LatLng(coordinates.lat,coordinates.lng),image:markerImage(maps,store,false),title:`${store.name} (예시 위치)`,clickable:true,zIndex:2})
+   const marker=new maps.Marker({position:new maps.LatLng(coordinates.lat,coordinates.lng),image:markerImage(maps,store,false),title:store.name,clickable:true,zIndex:2})
    markerIds.set(marker,store.id)
    const click=()=>onSelect(store.id)
    maps.event.addListener(marker,'click',click)

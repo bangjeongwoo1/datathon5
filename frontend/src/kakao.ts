@@ -48,7 +48,7 @@ export interface MapsSDK {
  CustomOverlay:new(options:{map:MapInstance;position:MapPosition;content:HTMLElement;yAnchor:number;zIndex:number})=>MapOverlay
  Size:new(width:number,height:number)=>object
  MarkerImage:new(source:string,size:object)=>object
- Marker:new(options:{position:MapPosition;image:object;title:string;clickable:boolean;zIndex:number})=>MapMarker
+ Marker:new(options:{position:MapPosition;image?:object;title?:string;clickable?:boolean;zIndex?:number})=>MapMarker
  MarkerClusterer:new(options:{map:MapInstance;averageCenter:boolean;minLevel:number;gridSize:number;minClusterSize:number;disableClickZoom:boolean;styles:Record<string,string>[]})=>MapClusterer
  services:{Status:{OK:string};Geocoder:new()=>{addressSearch(address:string,callback:(result:GeoResult[],status:string)=>void):void;coord2RegionCode(x:number,y:number,callback:(result:RegionResult[],status:string)=>void):void}}
  event:{

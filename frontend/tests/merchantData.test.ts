@@ -18,11 +18,6 @@ test('preserves source fields and falls back when official business type is blan
     category: '베이커리/간식',
     rawCategory: '제과점',
     detailCategory: '제과점',
-    open: false,
-    delivery: false,
-    menu: [],
-    hours: '',
-    distance: 0,
   })
 })
 

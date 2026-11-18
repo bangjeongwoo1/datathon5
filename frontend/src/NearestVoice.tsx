@@ -134,8 +134,7 @@ if (candidates.length === 0) {
             `${nearestText} ${nearest.name}입니다. ` +
             `도보 이동 거리는 ${distanceText}입니다. ` +
             `주소는 ${nearest.address}입니다. ` +
-            `현재 가맹점 위치는 시연용 정보이므로 ` +
-            `실제 방문 전 확인해 주세요.`
+            `방문 전 가맹 여부와 이용 가능 여부를 확인해 주세요.`
 
           announce(text)
         } catch (error) {
