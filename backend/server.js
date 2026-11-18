@@ -1,4 +1,4 @@
-
+import { pool } from "./db.js";
 import express from "express";
 import multer from "multer";
 import cors from "cors";
@@ -256,6 +256,69 @@ app.post('/api/walking-nearest', async (req, res) => {
     compared: routes.length,
     attempted: candidates.length,
   });
+});
+
+
+app.get("/api/merchants", async (req, res) => {
+  try {
+    const region = String(req.query.region || "").trim();
+    const search = String(req.query.search || "").trim();
+
+    const limit = Math.min(
+      1000,
+      Math.max(1, Number.parseInt(req.query.limit, 10) || 100)
+    );
+
+    const offset = Math.max(
+      0,
+      Number.parseInt(req.query.offset, 10) || 0
+    );
+
+    const conditions = [];
+    const params = [];
+
+    if (region) {
+      params.push(region);
+      conditions.push(`region = $${params.length}`);
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`name ILIKE $${params.length}`);
+    }
+
+    const where = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM public.merchants ${where}`,
+      params
+    );
+
+    const dataResult = await pool.query(
+      `SELECT *
+       FROM public.merchants
+       ${where}
+       ORDER BY merchant_id
+       LIMIT $${params.length + 1}
+       OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+
+    res.json({
+      total: countResult.rows[0].total,
+      limit,
+      offset,
+      merchants: dataResult.rows,
+    });
+  } catch (error) {
+    console.error("가맹점 조회 오류:", error.message);
+    res.status(500).json({
+      error: "가맹점 데이터를 조회하지 못했습니다.",
+    });
+  }
 });
 
 

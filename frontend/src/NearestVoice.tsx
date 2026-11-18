@@ -58,6 +58,37 @@ export default function NearestVoice({ stores, trigger }: Props) {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
+
+const userLat = position.coords.latitude
+const userLng = position.coords.longitude
+
+// 현재 위치와 가맹점 사이의 대략적인 거리 비교
+const distanceScore = (store: Merchant) => {
+  if (!store.coordinates) return Infinity
+
+  const latDiff = store.coordinates.lat - userLat
+  const lngDiff =
+    (store.coordinates.lng - userLng) *
+    Math.cos(userLat * Math.PI / 180)
+
+  return latDiff ** 2 + lngDiff ** 2
+}
+
+// 좌표가 있는 가맹점 중 가까운 100곳만 선택
+const candidates = stores
+  .filter(
+    store =>
+      store.coordinates &&
+      Number.isFinite(store.coordinates.lat) &&
+      Number.isFinite(store.coordinates.lng)
+  )
+  .sort((a, b) => distanceScore(a) - distanceScore(b))
+  .slice(0, 100)
+
+if (candidates.length === 0) {
+  throw new Error('좌표가 있는 가맹점을 찾지 못했습니다.')
+}
+
           const response = await fetch(
             apiUrl('/api/walking-nearest'),
             {
@@ -68,12 +99,12 @@ export default function NearestVoice({ stores, trigger }: Props) {
               body: JSON.stringify({
                 lat: position.coords.latitude,
                 lng: position.coords.longitude,
-                stores: stores.map((store) => ({
-                  id: store.id,
-                  name: store.name,
-                  address: store.address,
-                  coordinates: store.coordinates,
-                })),
+                stores: candidates.map((store) => ({
+  id: store.id,
+  name: store.name,
+  address: store.address,
+  coordinates: store.coordinates,
+})),
               }),
             }
           )
@@ -95,12 +126,11 @@ export default function NearestVoice({ stores, trigger }: Props) {
               : `약 ${nearest.meters}미터`
 
           const nearestText =
-            result.compared === result.total
-              ? '가장 가까운 곳은'
-              : `도보 경로를 확인한 ${result.compared}곳 중 가장 가까운 곳은`
-
+  `가까운 후보 ${result.attempted}곳 중 ` +
+  `도보 경로가 확인된 ${result.compared}곳을 비교한 결과, ` +
+  '가장 가까운 곳은'
           const text =
-            `총 ${result.total}곳이 검색되었습니다. ` +
+            `총 ${stores.length}곳이 검색되었습니다. ` +
             `${nearestText} ${nearest.name}입니다. ` +
             `도보 이동 거리는 ${distanceText}입니다. ` +
             `주소는 ${nearest.address}입니다. ` +
@@ -131,12 +161,19 @@ export default function NearestVoice({ stores, trigger }: Props) {
     )
   }
 
-  useEffect(() => {
-    if (trigger === 0) return
 
+useEffect(() => {
+  if (trigger === 0) return
+
+  const timer = window.setTimeout(() => {
     findNearest()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trigger])
+  }, 0)
+
+  return () => window.clearTimeout(timer)
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [trigger])
+
 
   return (
     <div style={{ marginTop: 12, marginBottom: 12 }}>

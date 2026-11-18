@@ -29,7 +29,12 @@
   .announcement strong{display:none}.announcement{min-height:42px}.announcement p{font-size:9px}.search-section{padding-left:14px;padding-right:14px}.filter-section{padding-left:14px;padding-right:14px}.chips{margin-right:-14px;padding-right:14px}.results-heading{padding-left:14px;padding-right:14px}.store-card{padding:15px 14px}.store-details{gap:6px}.delivery-tag{display:none}.map-popup{width:calc(100% - 64px)}
 }
 /* The workbook has no per-store phone, hours, delivery, menu, or distance fields. */
-.store-details,.store-top .status,.store-actions button:nth-of-type(2),.menu-tags .meal-tag,.popup-info p:nth-child(2),.popup-info p:nth-child(3),.popup-meal,.popup-actions button:nth-child(2){display:none}
+
+/* 실제 메뉴 정보가 없는 항목만 숨김 */
+.popup-meal {
+  display: none;
+}
+
 .data-note{display:none}
 .checks{display:none}
 .purple{color:#7c3aed}

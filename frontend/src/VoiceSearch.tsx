@@ -91,7 +91,7 @@ export default function VoiceSearch({
     setRecording(false)
   }
 
-  
+
 function speak() {
   if (!('speechSynthesis' in window)) {
     setError('이 브라우저는 음성 안내를 지원하지 않습니다.')
@@ -100,13 +100,12 @@ function speak() {
 
   window.speechSynthesis.cancel()
 
-  let message = ''
 
-  if (resultCount === 0) {
-    message = '현재 등록된 가맹점 중 검색 결과가 없습니다.'
-  } else {
-    message = `현재 등록된 가맹점 중 ${resultCount}곳이 검색되었습니다.`
-  }
+const message =
+  resultCount === 0
+    ? '현재 등록된 가맹점 중 검색 결과가 없습니다.'
+    : `현재 등록된 가맹점 중 ${resultCount}곳이 검색되었습니다.`
+
 
   const speech = new SpeechSynthesisUtterance(message)
   speech.lang = 'ko-KR'

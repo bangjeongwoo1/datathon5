@@ -8,11 +8,25 @@ export const merchants: Merchant[] = sourceMerchants.map(toMerchant)
 
 export type Filters = { query: string; category: string; distance?: boolean }
 
-export function filterMerchants(items: Merchant[], filters: Filters) {
+
+export function filterMerchants(
+  items: Merchant[],
+  filters: Filters
+) {
   const query = filters.query.trim().toLocaleLowerCase()
+
   return items.filter(store => {
-    const categoryMatches = filters.category === '전체' || (filters.category === '마트' ? store.category === '마트' : store.rawCategory === filters.category)
-    const searchable = `${store.name} ${store.address} ${store.rawCategory} ${store.detailCategory}`.toLocaleLowerCase()
+    const categoryMatches =
+      filters.category === '전체' ||
+      store.category === filters.category
+
+    const searchable = [
+      store.name,
+      store.address,
+      store.rawCategory,
+      store.detailCategory,
+    ].join(' ').toLocaleLowerCase()
+
     return categoryMatches && searchable.includes(query)
   })
 }

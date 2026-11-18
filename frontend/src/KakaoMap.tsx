@@ -1,30 +1,58 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps, regionLabel } from './kakao'
-import type { Coordinates, MapCluster, MapClusterer, MapInstance, MapMarker, MapsSDK } from './kakao'
-import { merchants } from './merchants'
+import type { MapCluster, MapClusterer, MapInstance, MapMarker, MapsSDK } from './kakao'
 import type { Merchant } from './merchants'
 import { selectCluster } from './mapClusters'
 import { markerSvg } from './markerIcon'
 import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
 import type { ViewportBounds } from './mapPositions'
 import { requestCurrentLocation } from './userLocation'
-import { moveMapToCurrentLocation } from './mapCurrentLocation'
 
 const CITY_HALL={lat:37.8813,lng:127.73}
-const colors:Record<string,string>={'일반음식점':'#2563eb','편의점':'#15957e','베이커리/간식':'#dc9341','마트':'#7c3aed'}
-type Props={onViewportChange:(bounds:ViewportBounds)=>void;onLocationChange:(position:Coordinates)=>void;stores:Merchant[];selectedId:number|null;onSelect:(id:number)=>void;onClusterSelect:(ids:number[])=>void;centerRequest:number;selectionRequest:number}
-type ReadyMap={maps:MapsSDK;map:MapInstance;clusterer:MapClusterer;positions:Map<number,Coordinates>}
-let positionsPromise:Promise<Map<number,Coordinates>>|null=null
-function merchantPositions(){
- if(!positionsPromise) positionsPromise=Promise.resolve(buildPersistedPositions(merchants))
- return positionsPromise
+
+const REGION_CENTERS: Record<string, { lat: number; lng: number }> = {
+  춘천시: { lat: 37.8813, lng: 127.73 },
+  원주시: { lat: 37.3422, lng: 127.9202 },
+  강릉시: { lat: 37.7519, lng: 128.8761 },
+  홍천군: { lat: 37.6974, lng: 127.8885 },
 }
+
+function getRegionCenter(region: string) {
+  return REGION_CENTERS[region] ?? CITY_HALL
+}
+
+const colors:Record<string,string>={'일반음식점':'#2563eb','편의점':'#15957e','베이커리/간식':'#dc9341','마트':'#7c3aed'}
+type Props = {
+  stores: Merchant[]
+  region: string
+  selectedId: number | null
+  onSelect: (id: number) => void
+  onClusterSelect: (ids: number[]) => void
+  centerRequest: number
+  selectionRequest: number
+  onLocationChange?: (position: { lat: number; lng: number }) => void
+}
+type ReadyMap = {
+  maps: MapsSDK
+  map: MapInstance
+  clusterer: MapClusterer
+}
+
 function markerImage(maps:MapsSDK,store:Merchant,selected:boolean){
  const fill=colors[store.category]||'#2563eb'
  const svg=markerSvg(fill)
  return new maps.MarkerImage(`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,new maps.Size(selected?36:28,selected?46:36))
 }
-export default function KakaoMap({onViewportChange,onLocationChange,stores,selectedId,onSelect,onClusterSelect,centerRequest,selectionRequest}:Props){
+export default function KakaoMap({
+  stores,
+  region,
+  selectedId,
+  onSelect,
+  onClusterSelect,
+  centerRequest,
+  selectionRequest,
+  onLocationChange,
+}: Props) {
  const container=useRef<HTMLDivElement>(null)
  const markerEntries=useRef<{marker:MapMarker;store:Merchant}[]>([])
  const currentLocationMarker=useRef<MapMarker|null>(null)
@@ -51,8 +79,12 @@ export default function KakaoMap({onViewportChange,onLocationChange,stores,selec
   Promise.all([loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||''),requestCurrentLocation().catch(()=>null)]).then(async ([maps,initialLocation])=>{
    idleMaps=maps
    if(cancelled)return
-   const initialCenter=initialLocation??CITY_HALL
-   const map=new maps.Map(host,{center:new maps.LatLng(initialCenter.lat,initialCenter.lng),level:initialLocation?3:4,keyboardShortcuts:true})
+   if (initialLocation) onLocationChange?.(initialLocation)
+   const map = new maps.Map(host, {
+  center: new maps.LatLng(CITY_HALL.lat, CITY_HALL.lng),
+  level: 4,
+  keyboardShortcuts: true,
+})
    map.setMinLevel(1);map.setMaxLevel(10)
    clusterer=new maps.MarkerClusterer({
     map,averageCenter:true,minLevel:4,gridSize:80,minClusterSize:2,disableClickZoom:true,
@@ -62,38 +94,23 @@ export default function KakaoMap({onViewportChange,onLocationChange,stores,selec
    observer.observe(host)
    const geocoder=new maps.services.Geocoder()
    idleMap=map
-   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();const nextBounds={south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()};setViewport(nextBounds);onViewportChange(nextBounds);const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
+   updateViewport=()=>{const bounds=map.getBounds(),southWest=bounds.getSouthWest(),northEast=bounds.getNorthEast();const nextBounds={south:southWest.getLat(),west:southWest.getLng(),north:northEast.getLat(),east:northEast.getLng()};setViewport(nextBounds);const request=++regionRequest;if(regionTimer)window.clearTimeout(regionTimer);regionTimer=window.setTimeout(()=>{const center=map.getCenter();geocoder.coord2RegionCode(center.getLng(),center.getLat(),(results,status)=>{if(!cancelled&&request===regionRequest&&status===maps.services.Status.OK)setLocationLabel(regionLabel(results))})},250)}
    maps.event.addListener(map,'idle',updateViewport)
    updateViewport()
-   requestCurrentLocation().then(position=>{
-    if(cancelled)return
-    currentLocationMarker.current?.setMap(null)
-    currentLocationMarker.current=new maps.Marker({
-     position:new maps.LatLng(position.lat,position.lng),
-     title:'현재 위치',
-     clickable:false,
-     zIndex:6,
-    })
-    currentLocationMarker.current.setMap(map)
-    moveMapToCurrentLocation(map,maps,position)
-    onLocationChange(position)
-   }).catch(()=>{
-    // 위치 권한을 거부하거나 좌표를 받지 못하면 기존 춘천시 중심 화면을 유지한다.
-   })
-   setPhase('가맹점 위치를 지도에 연결하고 있습니다…')
-   const positions=await merchantPositions()
-   if(cancelled)return
-   setReady({maps,map,clusterer,positions});setPhase('')
+   if (cancelled) return
+    setReady({ maps, map, clusterer })
+    setPhase('')
   }).catch(()=>{
    if(!cancelled){setPhase('');setError('카카오맵을 불러오지 못했습니다. .env.local의 JavaScript 키, 현재 접속 주소의 SDK 도메인 등록, 카카오맵 사용 설정을 확인해 주세요.')}
   })
   return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);currentLocationMarker.current?.setMap(null);currentLocationMarker.current=null;clusterer?.clear();host.replaceChildren()}
- },[retry,onLocationChange,onViewportChange])
+ },[retry,onLocationChange])
 
  // Keep one SDK clusterer per map. Filtering changes its markers, not the instance.
  useEffect(()=>{
   if(!ready)return
-  const {maps,map,clusterer,positions}=ready
+  const { maps, map, clusterer } = ready
+  const positions = buildPersistedPositions(stores)
   if(!viewport)return
   const markerIds=new Map<MapMarker,number>()
   const disposers:(()=>void)[]=[]
@@ -146,29 +163,43 @@ export default function KakaoMap({onViewportChange,onLocationChange,stores,selec
  },[ready,stores,selectedId])
  useEffect(()=>{
   if(!ready)return
-  const position=selectedId===null?undefined:ready.positions.get(selectedId)
+  const position = selectedId === null
+  ? undefined
+  : buildPersistedPositions(stores).get(selectedId)
   if(position){ready.map.setLevel(Math.min(3,ready.map.getLevel()));ready.map.panTo(new ready.maps.LatLng(position.lat,position.lng))}
- },[ready,selectedId,selectionRequest])
- useEffect(()=>{
-  if(!ready||!centerRequest)return
-  ready.map.setLevel(4);ready.map.panTo(new ready.maps.LatLng(CITY_HALL.lat,CITY_HALL.lng))
- },[ready,centerRequest])
- function moveToCurrentLocation(){
-  if(!ready)return
-  requestCurrentLocation().then(position=>{
-   currentLocationMarker.current?.setMap(null)
-   currentLocationMarker.current=new ready.maps.Marker({position:new ready.maps.LatLng(position.lat,position.lng),title:'현재 위치',clickable:false,zIndex:6})
-   currentLocationMarker.current.setMap(ready.map)
-   moveMapToCurrentLocation(ready.map,ready.maps,position)
-   onLocationChange(position)
-  }).catch(()=>setLocationLabel('현재 위치를 확인하지 못했습니다. 위치 권한을 확인해 주세요.'))
- }
+},[ready,stores,selectedId,selectionRequest])
+
+useEffect(() => {
+  if (!ready) return
+
+  const center = getRegionCenter(region)
+
+  ready.map.setLevel(4)
+  ready.map.panTo(
+    new ready.maps.LatLng(center.lat, center.lng)
+  )
+}, [ready, region, centerRequest])
+
  function changeZoom(change:number){if(!ready)return;const level=Math.max(1,Math.min(10,ready.map.getLevel()+change));ready.map.setLevel(level)}
- return <><div ref={container} className="kakao-map-canvas" aria-label="카카오맵 춘천시 가맹점 지도"/>
+ return <><div ref={container} className="kakao-map-canvas" aria-label={`카카오맵 ${region} 가맹점 지도`}/>
  <div className="map-location"><b>{locationLabel}</b></div>
  <div className="map-preview-label">카카오맵</div>
- <div className="map-cluster-hint">지도를 움직이면 현재 지도 안의 가맹점 목록이 갱신됩니다.</div>
- {(phase||error)&&<div className="map-load-state" role={error?'alert':'status'}><strong>{error?'지도를 표시할 수 없습니다':'지도 연결 중'}</strong><p>{error||phase}</p>{error&&<button onClick={()=>{positionsPromise=null;setRetry(n=>n+1)}}>다시 시도</button>}</div>}
- {ready&&<div className="map-controls"><button aria-label="현재 위치로 이동" title="현재 위치로 이동" onClick={moveToCurrentLocation}>◎</button><div><button aria-label="지도 확대" onClick={()=>changeZoom(-1)}>+</button><button aria-label="지도 축소" onClick={()=>changeZoom(1)}>−</button></div></div>}
+ <div className="map-cluster-hint">숫자 마커를 누르면 해당 지역의 가맹점만 볼 수 있어요.</div>
+ {(phase||error)&&<div className="map-load-state" role={error?'alert':'status'}><strong>{error?'지도를 표시할 수 없습니다':'지도 연결 중'}</strong><p>{error||phase}</p>{error&&<button onClick={()=>setRetry(n=>n+1)}>다시 시도</button>}</div>}
+ {ready&&<div className="map-controls">
+<button
+  aria-label="선택 지역 중심으로 이동"
+  title="선택 지역 중심으로 이동"
+  onClick={() => {
+    const center = getRegionCenter(region)
+    ready.map.setLevel(4)
+    ready.map.panTo(
+      new ready.maps.LatLng(center.lat, center.lng)
+    )
+  }}
+>
+  ◎
+</button>
+<div><button aria-label="지도 확대" onClick={()=>changeZoom(-1)}>+</button><button aria-label="지도 축소" onClick={()=>changeZoom(1)}>−</button></div></div>}
  </>
 }
