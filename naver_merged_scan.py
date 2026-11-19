@@ -196,6 +196,7 @@ def main():
             verdict = judge_by_category(info['category']) if info['status'] == 'ok' else '판별불가'
 
             base = {
+                '가맹점ID':     row.get('가맹점ID', ''),  # PostgreSQL merchants.merchant_id와 매칭되는 키
                 '업소명':       name,
                 '주소':         address,
                 '업종명':       info['category'],
@@ -222,7 +223,7 @@ def main():
     finally:
         driver.quit()
 
-    no_hours_fields = ['업소명', '주소', '업종명', '네이버기반판별', '주소확인', '수집상태']
+    no_hours_fields = ['가맹점ID', '업소명', '주소', '업종명', '네이버기반판별', '주소확인', '수집상태']
 
     bar_path = os.path.join(BASE_DIR, '주점.csv')
     with open(bar_path, 'w', encoding='utf-8-sig', newline='') as f:
