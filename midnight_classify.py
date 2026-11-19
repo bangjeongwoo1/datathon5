@@ -106,12 +106,50 @@ for col in bar_fieldnames:
 keep_bars = []      # 자정 넘김 → 검토후보 유지
 move_to_done = []   # 자정 전 종료 → 중복완료로 이동
 no_data = []        # 판단 불가 → 검토후보 유지 (보수적)
+hours_log = []      # 영업시간 기록용
+
+def pick_representative(time_pairs):
+    """
+    수집된 시간 패턴 중 대표 오픈/마감 시각 1쌍을 반환.
+    브레이크 타임(오픈 14~17시, 마감 15~18시) 제외 후
+    첫 두 패턴이 같으면 그것을, 아니면 가장 긴 패턴을 선택.
+    """
+    candidates = []
+    for open_t, close_t in time_pairs:
+        om = re.match(r'(\d{1,2}):(\d{2})', open_t)
+        cm = re.match(r'(\d{1,2}):(\d{2})', close_t)
+        if not om or not cm:
+            continue
+        oh = int(om.group(1)); omm = int(om.group(2))
+        ch_ = int(cm.group(1)); cmm = int(cm.group(2))
+        open_min  = oh * 60 + omm
+        close_min = ch_ * 60 + cmm if ch_ != 24 else 1440
+        if 840 <= open_min <= 1020 and 900 <= close_min <= 1080:
+            continue
+        candidates.append((open_t, close_t, open_min, close_min))
+
+    if not candidates:
+        return '', ''
+
+    if len(candidates) >= 2 and (candidates[0][0], candidates[0][1]) == (candidates[1][0], candidates[1][1]):
+        return candidates[0][0], candidates[0][1]
+
+    def dur(c):
+        o, cl = c[2], c[3]
+        return 1440 - o + cl if cl < o else cl - o
+
+    best = max(candidates, key=dur)
+    return best[0], best[1]
+
 
 for i, row in enumerate(bar_rows):
     name = row['가맹점명']
     addr_hint = '춘천' if '춘천' in row.get('소재지도로명주소', '') else ''
     pairs = fetch_naver_hours(name, addr_hint)
     verdict = is_past_midnight(pairs)
+
+    open_t, close_t = pick_representative(pairs)
+    hours_log.append({'가게명': name, '오픈시각': open_t, '닫는시각': close_t})
 
     if verdict is True:
         keep_bars.append(row)
@@ -165,3 +203,11 @@ with open(done_path, 'w', encoding='utf-8-sig', newline='') as f:
         full_row = {col: row.get(col, '') for col in all_fieldnames}
         writer.writerow(full_row)
 print(f"저장: 중복의심_검토_완료.csv ({len(combined)}행 = 기존 {len(done_rows)} + 이동 {len(move_to_done)})")
+
+# 영업시간 CSV
+hours_path = os.path.join(BASE_DIR, '주점_영업시간.csv')
+with open(hours_path, 'w', encoding='utf-8-sig', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['가게명', '오픈시각', '닫는시각'])
+    writer.writeheader()
+    writer.writerows(hours_log)
+print(f"저장: 주점_영업시간.csv ({len(hours_log)}행)")
