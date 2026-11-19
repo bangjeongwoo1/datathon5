@@ -2,7 +2,7 @@
 """
 SRC_FILE(merge_review_targets.py가 만든 통합 대상)의 업소를 네이버 지도에서
 "한 번만" 방문해서 업종(span.mwWcl)과 영업시간을 동시에 수집한 뒤, 판별
-결과에 따라 바로 두 개의 결과 파일로 나눈다.
+결과에 따라 바로 세 개의 결과 파일로 나눈다.
 
 왜 합쳤는가:
   naver_category.py(업종 판별)와 final_bar_dataset.py(영업시간)를 따로 돌리면
@@ -13,10 +13,9 @@ SRC_FILE(merge_review_targets.py가 만든 통합 대상)의 업소를 네이버
   1. SRC_FILE(주점판별_대상통합.csv, merge_review_targets.py 실행 결과)을 읽는다.
   2. 업소마다 네이버 지도를 1회 방문 → 업종 + 영업시간 원본텍스트 동시 수집.
   3. 업종으로 주점의심 / 정상 / 판별불가 판별.
-     - 주점의심 → 주점의심_업체목록.csv 로 분리 (영업시간 조회는 하지 않음,
-       이미 열린 페이지에서 얻은 값이라도 이 파일에는 영업시간 컬럼이 없음)
-     - 정상 / 판별불가 → parse_hours()로 여는/닫는시간을 채워
-       비주점_업체목록.csv 로 분리.
+     - 주점의심   → 주점.csv (영업시간 조회 안 함)
+     - 판별불가   → 검수필요.csv (업종 조회 자체가 안 돼서 영업시간도 알 수 없음)
+     - 정상       → 비주점_업체목록.csv (parse_hours()로 여는/닫는시간 채움)
 
 재사용(중복 구현 없음): make_driver/parse_hours(make_hours_csv.py),
                         road_token/judge_by_category(naver_category.py).
@@ -178,8 +177,9 @@ def main():
     driver = make_driver()
     print("시작. Edge 창이 열립니다.")
 
-    bar_rows = []      # 주점의심_업체목록.csv
-    non_bar_rows = []  # 비주점_업체목록.csv (정상 + 판별불가, 영업시간 포함)
+    bar_rows = []      # 주점.csv (주점의심, 영업시간 조회 안 함)
+    review_rows = []   # 검수필요.csv (판별불가, 영업시간 조회 안 함)
+    non_bar_rows = []  # 비주점_업체목록.csv (정상, 영업시간 포함)
 
     try:
         for i, row in enumerate(rows):
@@ -207,6 +207,9 @@ def main():
             if verdict == '주점의심':
                 bar_rows.append(base)
                 hours_display = '(주점의심-영업시간 미조회)'
+            elif verdict == '판별불가':
+                review_rows.append(base)
+                hours_display = '(판별불가-영업시간 조회 불가)'
             else:
                 open_t, close_t = parse_hours(info['hours_raw'])
                 non_bar_rows.append({**base, '여는시간': open_t, '닫는시간': close_t})
@@ -219,23 +222,30 @@ def main():
     finally:
         driver.quit()
 
-    bar_path = os.path.join(BASE_DIR, '주점의심_업체목록.csv')
+    no_hours_fields = ['업소명', '주소', '업종명', '네이버기반판별', '주소확인', '수집상태']
+
+    bar_path = os.path.join(BASE_DIR, '주점.csv')
     with open(bar_path, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=['업소명', '주소', '업종명', '네이버기반판별', '주소확인', '수집상태'])
+        writer = csv.DictWriter(f, fieldnames=no_hours_fields)
         writer.writeheader()
         writer.writerows(bar_rows)
 
+    review_path = os.path.join(BASE_DIR, '검수필요.csv')
+    with open(review_path, 'w', encoding='utf-8-sig', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=no_hours_fields)
+        writer.writeheader()
+        writer.writerows(review_rows)
+
     non_bar_path = os.path.join(BASE_DIR, '비주점_업체목록.csv')
     with open(non_bar_path, 'w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            '업소명', '주소', '업종명', '네이버기반판별', '주소확인', '수집상태', '여는시간', '닫는시간'
-        ])
+        writer = csv.DictWriter(f, fieldnames=no_hours_fields + ['여는시간', '닫는시간'])
         writer.writeheader()
         writer.writerows(non_bar_rows)
 
     found = sum(1 for r in non_bar_rows if r['닫는시간'])
     print(f"\n저장 완료:")
-    print(f"  주점의심_업체목록.csv ({len(bar_rows)}건)")
+    print(f"  주점.csv ({len(bar_rows)}건)")
+    print(f"  검수필요.csv ({len(review_rows)}건)")
     print(f"  비주점_업체목록.csv ({len(non_bar_rows)}건, 닫는시간 확인 {found}건)")
 
 
