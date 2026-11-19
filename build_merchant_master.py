@@ -15,13 +15,19 @@
      배달시간은 "배달" 키워드 주변 시간대를 찾는 최선 노력(beat-effort) 방식이라
      다른 항목보다 신뢰도가 낮음 - 샘플 테스트에서 특히 확인 필요.
   4. merchant_id 컬럼을 새로 만들어 병합된 순서대로 1부터 오름차순 부여.
+     병합 직후(=수집 시작 전) 한 번만 배정하고 이후 재실행해도 바뀌지 않으므로,
+     중단 후 이어하기에서 "이미 처리한 행" 식별자로도 그대로 쓴다.
 
 재사용(중복 구현 없음): make_driver(make_hours_csv.py), judge_by_category(naver_category.py).
 크롤링 자체(펼쳐보기 클릭, 요일별 영업시간 파싱)는 이 파일에서 새로 작성.
 
-TEST_SAMPLE_PER_FILE: 지역별로 몇 개를 무작위로 뽑아 테스트할지. 0이면 전체 실행.
+중단 후 이어하기: 업체 1건을 수집할 때마다 바로 CHECKPOINT_FILE에 한 줄씩 저장한다.
+다음에 다시 실행하면 이 파일에 이미 있는 merchant_id는 건너뛰고 나머지만 이어서
+수집한다. 밤새 돌리다 중간에 꺼지거나 Ctrl+C로 멈춰도 그때까지 모은 결과는
+안전하다 (단, 4개 지역 CSV 자체를 다시 손대면 merchant_id 배정이 달라지므로
+수집 도중에는 원본 CSV를 건드리지 말 것).
 """
-import csv, os, random, re, time, urllib.parse
+import csv, os, re, time, urllib.parse
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -46,8 +52,7 @@ WEEKDAY_DAYS = {'월', '화', '수', '목', '금'}
 SATURDAY_DAYS = {'토'}
 SUNDAY_DAYS = {'일', '일요일', '공휴일'}
 
-TEST_SAMPLE_PER_FILE = 5  # 지역별 샘플 개수. 전체 실행하려면 0으로.
-RANDOM_SEED = 1120202602  # 이전 샘플(10개/지역)과 겹치지 않도록 새 시드로 변경
+CHECKPOINT_FILE = os.path.join(BASE_DIR, '가맹점_수집_진행.csv')
 
 
 # ── 1. 병합 ──────────────────────────────────────────────
@@ -129,7 +134,7 @@ def extract_delivery_hours(raw_text):
 def _extract_from_entry_iframe(driver, query_hint):
     """
     현재 페이지에 entryIframe이 존재한다고 가정하고 진입해 업종(span.mwWcl)과
-    영업시간 원본 텍스트를 추출한다. fetch_once와 주소검색 폴백이 공유하는 로직.
+    영업시간 원본 텍스트를 추출한다.
     반환: dict(category, hours_raw, addr_check, status)
     """
     try:
@@ -327,102 +332,106 @@ def main():
     fieldnames, rows = load_and_merge()
     print(f"\n병합 완료: {len(rows)}건 (컬럼 {len(fieldnames)}개, 전부 동일)")
 
-    random.seed(RANDOM_SEED)
-    if TEST_SAMPLE_PER_FILE:
-        # 이전 검증에 썼던 업소(업소명+주소 기준)는 이번 샘플 풀에서 제외
-        prev_path = os.path.join(BASE_DIR, '가맹점_마스터_샘플10_이전.csv')
-        prev_keys = set()
-        if os.path.exists(prev_path):
-            with open(prev_path, 'r', encoding='utf-8-sig') as f:
-                for r in csv.DictReader(f):
-                    prev_keys.add((r.get('mrhstNm', ''), r.get('rdnmadr', '')))
-            print(f"이전 샘플 제외 대상: {len(prev_keys)}건")
+    # merchant_id는 병합 직후(=수집 시작 전) 1부터 한 번만 배정. 이 값을
+    # 이어하기에서 "이미 처리한 행" 식별자로 그대로 쓰므로 여기서 고정한다.
+    for i, row in enumerate(rows, start=1):
+        row['merchant_id'] = str(i)
 
-        # 지역별로 원래 속했던 파일을 기억해 각 파일에서 균등하게 샘플링
-        by_source = {}
-        idx = 0
-        for fname in SOURCE_FILES:
-            path = os.path.join(SRC_DIR, fname)
-            with open(path, 'r', encoding='utf-8-sig') as f:
-                n = sum(1 for _ in csv.DictReader(f))
-            by_source[fname] = rows[idx:idx + n]
-            idx += n
-
-        target_rows = []
-        for fname in SOURCE_FILES:
-            pool = [r for r in by_source[fname] if (r.get('mrhstNm', ''), r.get('rdnmadr', '')) not in prev_keys]
-            sample = random.sample(pool, min(TEST_SAMPLE_PER_FILE, len(pool)))
-            target_rows.extend(sample)
-        print(f"테스트 샘플: 지역별 {TEST_SAMPLE_PER_FILE}개씩(이전 샘플 제외), 총 {len(target_rows)}건")
-    else:
-        target_rows = rows
-
-    # 네이버기반판별/주소확인/수집상태는 3개 파일로 분리되는 순간
-    # 파일명 자체가 그 정보를 담으므로 저장 컬럼에는 넣지 않음(내부 처리/로그용으로만 사용)
     out_fieldnames = ['merchant_id'] + fieldnames + ['Cuisine']
+    # 네이버기반판별/주소확인/수집상태는 최종 3개 파일 분리 시 파일명 자체가
+    # 그 정보를 담으므로 결과 파일엔 안 넣지만, 체크포인트는 이어하기에
+    # verdict가 필요해서 같이 저장한다.
+    checkpoint_fieldnames = out_fieldnames + ['네이버기반판별', '주소확인', '수집상태']
 
-    print("Edge 드라이버 초기화 중...")
-    driver = make_driver()
-    print("시작. Edge 창이 열립니다.")
-
+    # 이전 실행에서 CHECKPOINT_FILE에 이미 저장해 둔 행은 건너뛰고 이어서 수집
     results = []
-    try:
-        for i, row in enumerate(target_rows):
-            name = row.get('mrhstNm', '')
-            address = row.get('rdnmadr', '')
-            road_hint = road_token_from_address(address) or row.get('signguNm', '')
+    done_ids = set()
+    if os.path.exists(CHECKPOINT_FILE):
+        with open(CHECKPOINT_FILE, 'r', encoding='utf-8-sig', newline='') as f:
+            for r in csv.DictReader(f):
+                results.append(r)
+                done_ids.add(r['merchant_id'])
+        print(f"이어하기: 체크포인트에서 {len(results)}건 발견, 건너뜀")
 
+    target_rows = [row for row in rows if row['merchant_id'] not in done_ids]
+    print(f"이번에 수집할 행: {len(target_rows)}건 (전체 {len(rows)}건 중 {len(results)}건은 이미 완료)")
+
+    if not target_rows:
+        print("남은 행이 없습니다. 바로 결과 파일을 다시 씀.")
+    else:
+        print("Edge 드라이버 초기화 중...")
+        driver = make_driver()
+        print("시작. Edge 창이 열립니다. Ctrl+C로 중단해도 지금까지 수집한 내용은 "
+              "체크포인트에 남아 있어 다시 실행하면 이어서 진행합니다.")
+
+        # 체크포인트 파일에 한 줄씩 바로 저장(flush)해서, 도중에 꺼지거나
+        # 중단돼도 이미 처리한 행은 유실되지 않게 한다.
+        is_new_checkpoint = not os.path.exists(CHECKPOINT_FILE)
+        checkpoint_f = open(CHECKPOINT_FILE, 'a', encoding='utf-8-sig', newline='')
+        checkpoint_writer = csv.DictWriter(checkpoint_f, fieldnames=checkpoint_fieldnames)
+        if is_new_checkpoint:
+            checkpoint_writer.writeheader()
+
+        try:
             try:
-                info = fetch(driver, name, road_hint)
-            except Exception as e:
-                info = {'category': '', 'hours_raw': '', 'addr_check': '',
-                         'status': f'error:unexpected:{type(e).__name__}'}
+                for i, row in enumerate(target_rows):
+                    name = row.get('mrhstNm', '')
+                    address = row.get('rdnmadr', '')
+                    road_hint = road_token_from_address(address) or row.get('signguNm', '')
 
-            verdict = judge_by_category(info['category']) if info['status'] == 'ok' else '판별불가'
-            day_hours = extract_day_hours(info['hours_raw']) if info['hours_raw'] else \
-                {'weekday': ('', ''), 'saturday': ('', ''), 'sunday': ('', '')}
-            dlvr_open, dlvr_close = extract_delivery_hours(info['hours_raw']) if info['hours_raw'] else ('', '')
+                    try:
+                        info = fetch(driver, name, road_hint)
+                    except Exception as e:
+                        info = {'category': '', 'hours_raw': '', 'addr_check': '',
+                                 'status': f'error:unexpected:{type(e).__name__}'}
 
-            out_row = dict(row)
-            out_row['Cuisine'] = info['category']
-            out_row['네이버기반판별'] = verdict
-            out_row['주소확인'] = info['addr_check']
-            out_row['수집상태'] = info['status']
+                    verdict = judge_by_category(info['category']) if info['status'] == 'ok' else '판별불가'
+                    day_hours = extract_day_hours(info['hours_raw']) if info['hours_raw'] else \
+                        {'weekday': ('', ''), 'saturday': ('', ''), 'sunday': ('', '')}
+                    dlvr_open, dlvr_close = extract_delivery_hours(info['hours_raw']) if info['hours_raw'] else ('', '')
 
-            # 네이버에서 찾은 값이 있을 때만 덮어쓰고, 못 찾으면 원본 값 유지
-            wd_o, wd_c = day_hours['weekday']
-            sa_o, sa_c = day_hours['saturday']
-            su_o, su_c = day_hours['sunday']
-            if wd_o: out_row['weekdayOperOpenHhmm'] = wd_o
-            if wd_c: out_row['weekdayOperColseHhmm'] = wd_c
-            if sa_o: out_row['satOperOperOpenHhmm'] = sa_o
-            if sa_c: out_row['satOperCloseHhmm'] = sa_c
-            if su_o: out_row['holidayOperOpenHhmm'] = su_o
-            if su_c: out_row['holidayCloseOpenHhmm'] = su_c
-            if dlvr_open: out_row['dlvrOperOpenHhmm'] = dlvr_open
-            if dlvr_close: out_row['dlvrCloseOpenHhmm'] = dlvr_close
+                    out_row = dict(row)
+                    out_row['Cuisine'] = info['category']
+                    out_row['네이버기반판별'] = verdict
+                    out_row['주소확인'] = info['addr_check']
+                    out_row['수집상태'] = info['status']
 
-            results.append(out_row)
+                    # 네이버에서 찾은 값이 있을 때만 덮어쓰고, 못 찾으면 원본 값 유지
+                    wd_o, wd_c = day_hours['weekday']
+                    sa_o, sa_c = day_hours['saturday']
+                    su_o, su_c = day_hours['sunday']
+                    if wd_o: out_row['weekdayOperOpenHhmm'] = wd_o
+                    if wd_c: out_row['weekdayOperColseHhmm'] = wd_c
+                    if sa_o: out_row['satOperOperOpenHhmm'] = sa_o
+                    if sa_c: out_row['satOperCloseHhmm'] = sa_c
+                    if su_o: out_row['holidayOperOpenHhmm'] = su_o
+                    if su_c: out_row['holidayCloseOpenHhmm'] = su_c
+                    if dlvr_open: out_row['dlvrOperOpenHhmm'] = dlvr_open
+                    if dlvr_close: out_row['dlvrCloseOpenHhmm'] = dlvr_close
 
-            hrs_display = f"평일{wd_o or '-'}~{wd_c or '-'} 토{sa_o or '-'}~{sa_c or '-'} 일{su_o or '-'}~{su_c or '-'}"
-            print(f"  [{i+1}/{len(target_rows)}] {name[:18]:18s} -> {verdict:6s} | "
-                  f"Cuisine:{info['category'] or '(없음)':10s} | {hrs_display}")
-            time.sleep(0.5)
+                    results.append(out_row)
+                    checkpoint_writer.writerow(out_row)
+                    checkpoint_f.flush()
+                    os.fsync(checkpoint_f.fileno())
 
-    finally:
-        driver.quit()
-
-    # merchant_id는 병합 순서(= 결과 저장 순서) 기준 1부터 오름차순
-    for i, row in enumerate(results, start=1):
-        row['merchant_id'] = i
+                    hrs_display = f"평일{wd_o or '-'}~{wd_c or '-'} 토{sa_o or '-'}~{sa_c or '-'} 일{su_o or '-'}~{su_c or '-'}"
+                    print(f"  [{i+1}/{len(target_rows)}] {name[:18]:18s} -> {verdict:6s} | "
+                          f"Cuisine:{info['category'] or '(없음)':10s} | {hrs_display}")
+                    time.sleep(0.5)
+            except KeyboardInterrupt:
+                print(f"\n중단됨 (Ctrl+C). 지금까지 수집한 내용은 체크포인트에 저장되어 "
+                      f"있습니다. 다시 실행하면 이어서 진행합니다.")
+        finally:
+            checkpoint_f.close()
+            driver.quit()
 
     # 네이버기반판별 기준으로 3개 파일 분리: 주점의심 -> 주점.csv,
-    # 정상 -> 비주점.csv, 판별불가 -> 검수필요.csv
-    suffix = f'_샘플{TEST_SAMPLE_PER_FILE}' if TEST_SAMPLE_PER_FILE else ''
+    # 정상 -> 비주점.csv, 판별불가 -> 검수필요.csv (체크포인트 누적분 전체 기준)
+    results.sort(key=lambda r: int(r['merchant_id']))
     buckets = {
-        '주점의심': f'주점{suffix}.csv',
-        '정상': f'비주점{suffix}.csv',
-        '판별불가': f'검수필요{suffix}.csv',
+        '주점의심': '주점.csv',
+        '정상': '비주점.csv',
+        '판별불가': '검수필요.csv',
     }
     grouped = {verdict: [] for verdict in buckets}
     for row in results:
