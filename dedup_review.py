@@ -67,119 +67,135 @@ def extract_floor(addr):
     return 0  # 층 정보 없음
 
 
-# ── 데이터 로드 ──────────────────────────────────────
-input_path = os.path.join(BASE_DIR, 'A_중복의심_검토.csv')
-rows = []
-with open(input_path, 'r', encoding='utf-8-sig') as f:
-    reader = csv.DictReader(f)
-    fieldnames = reader.fieldnames
-    for row in reader:
-        rows.append(row)
+def run_dedup_review(rows):
+    """
+    중복의심 행 목록을 그룹핑해 중복 제거/비중복/인간검수로 분류한다.
+    (merge_review_targets.py 등 다른 스크립트가 파일 I/O 없이 바로 재사용하기
+    위해 분리한 것일 뿐, 판단 로직 자체는 기존과 동일하다.)
+    반환: (deduped, human_review)
+      deduped: 그룹별 대표 1행만 남긴 목록 (단일 행 그룹은 그대로 포함)
+      human_review: 인간 검수가 필요한 그룹의 모든 행
+    """
+    print(f"총 행 수: {len(rows)}")
 
-print(f"총 행 수: {len(rows)}")
+    # ── 그룹핑: (이름키, 위치키) ───────────────────────────
+    # 위치키가 비어있으면 도로명키+지번키 사용
+    groups = defaultdict(list)
+    for row in rows:
+        name_key = row.get('이름키', '')
+        loc_key = row.get('위치키', '')
+        if not loc_key:
+            road_key = row.get('도로명키', '')
+            jibun_key = row.get('지번키', '')
+            loc_key = f"{road_key}|{jibun_key}"
+        group_key = (name_key, loc_key)
+        groups[group_key].append(row)
 
-# ── 그룹핑: (이름키, 위치키) ───────────────────────────
-# 위치키가 비어있으면 도로명키+지번키 사용
-groups = defaultdict(list)
-for row in rows:
-    name_key = row.get('이름키', '')
-    loc_key = row.get('위치키', '')
-    if not loc_key:
-        road_key = row.get('도로명키', '')
-        jibun_key = row.get('지번키', '')
-        loc_key = f"{road_key}|{jibun_key}"
-    group_key = (name_key, loc_key)
-    groups[group_key].append(row)
+    print(f"그룹 수: {len(groups)}")
 
-print(f"그룹 수: {len(groups)}")
+    # ── 중복 판단 ────────────────────────────────────────
+    deduped = []       # 중복 제거된 행
+    human_review = []  # 인간 검수 필요
 
-# ── 중복 판단 ────────────────────────────────────────
-deduped = []       # 중복 제거된 행
-not_dup = []       # 비중복 (모든 행 유지)
-human_review = []   # 인간 검수 필요
+    for group_key, group_rows in groups.items():
+        if len(group_rows) == 1:
+            # 단일 행은 그대로 유지
+            deduped.append(group_rows[0])
+            continue
 
-for group_key, group_rows in groups.items():
-    if len(group_rows) == 1:
-        # 단일 행은 그대로 유지
-        deduped.append(group_rows[0])
-        continue
+        # 그룹 내 업종명 집합
+        biz_types = set(r.get('업종명', '') for r in group_rows)
+        # 주소에서 층 추출
+        floors = set(extract_floor(r.get('소재지도로명주소', '')) for r in group_rows)
+        # 정규화 주소
+        norm_addrs = set(normalize_addr(r.get('소재지도로명주소', '')) for r in group_rows)
+        # 도로명키
+        road_keys = set(r.get('도로명키', '') for r in group_rows)
 
-    # 그룹 내 업종명 집합
-    biz_types = set(r.get('업종명', '') for r in group_rows)
-    # 주소에서 층 추출
-    floors = set(extract_floor(r.get('소재지도로명주소', '')) for r in group_rows)
-    # 정규화 주소
-    norm_addrs = set(normalize_addr(r.get('소재지도로명주소', '')) for r in group_rows)
-    # 도로명키
-    road_keys = set(r.get('도로명키', '') for r in group_rows)
+        name_key, loc_key = group_key
 
-    name_key, loc_key = group_key
+        # 판단 기준
+        needs_review = False
+        review_reason = ''
 
-    # 판단 기준
-    needs_review = False
-    review_reason = ''
-
-    # 1. 층수가 다른 경우 (0은 층 정보 없음이므로 제외)
-    # 단, 업종명이 모두 같으면 같은 매장의 다른 층으로 간주 (중복)
-    real_floors = floors - {0}
-    if len(real_floors) > 1 and len(biz_types) > 1:
-        needs_review = True
-        review_reason = f"층수+업종 차이: {sorted(real_floors)}층, {biz_types}"
-
-    # 2. 비호환 업종
-    if not needs_review and not biz_compatible(biz_types):
-        needs_review = True
-        review_reason = f"비호환 업종: {biz_types}"
-
-    # 3. 도로명키가 다른 경우 (완전히 다른 위치)
-    if not needs_review and len(road_keys) > 1:
-        # 도로명키가 달라도 주소 정규화 후 같으면 중복
-        if len(norm_addrs) > 1:
+        # 1. 층수가 다른 경우 (0은 층 정보 없음이므로 제외)
+        # 단, 업종명이 모두 같으면 같은 매장의 다른 층으로 간주 (중복)
+        real_floors = floors - {0}
+        if len(real_floors) > 1 and len(biz_types) > 1:
             needs_review = True
-            review_reason = f"다른 도로명: {road_keys}"
+            review_reason = f"층수+업종 차이: {sorted(real_floors)}층, {biz_types}"
 
-    if needs_review:
-        # 인간 검수 필요
-        for r in group_rows:
-            r_copy = dict(r)
-            r_copy['검토결과'] = '인간검수필요'
-            r_copy['비고'] = review_reason
-            human_review.append(r_copy)
-    else:
-        # 중복 → 첫 번째 행만 유지
-        first = dict(group_rows[0])
-        first['검토결과'] = '중복제거'
-        first['비고'] = f"중복 {len(group_rows)}건 → 1건 유지 (업종: {', '.join(biz_types)})"
-        deduped.append(first)
+        # 2. 비호환 업종
+        if not needs_review and not biz_compatible(biz_types):
+            needs_review = True
+            review_reason = f"비호환 업종: {biz_types}"
 
-print(f"\n=== 분류 결과 ===")
-print(f"중복 제거 (1행 유지): {sum(1 for r in deduped if r.get('검토결과') == '중복제거')}건")
-print(f"단일 행 (유지): {sum(1 for r in deduped if r.get('검토결과', '') == '')}건")
-print(f"인간 검수 필요: {len(human_review)}건")
-print(f"최종 행 수: {len(deduped)}건 (원본 {len(rows)}건에서 {len(rows) - len(deduped)}건 제거)")
+        # 3. 도로명키가 다른 경우 (완전히 다른 위치)
+        if not needs_review and len(road_keys) > 1:
+            # 도로명키가 달라도 주소 정규화 후 같으면 중복
+            if len(norm_addrs) > 1:
+                needs_review = True
+                review_reason = f"다른 도로명: {road_keys}"
 
-print(f"\n--- 인간 검수 대상 ---")
-seen_groups = set()
-for r in human_review:
-    name = r.get('가맹점명', '')
-    if name not in seen_groups:
-        seen_groups.add(name)
-        print(f"  ★ {name} | {r.get('비고', '')}")
+        if needs_review:
+            # 인간 검수 필요
+            for r in group_rows:
+                r_copy = dict(r)
+                r_copy['검토결과'] = '인간검수필요'
+                r_copy['비고'] = review_reason
+                human_review.append(r_copy)
+        else:
+            # 중복 → 첫 번째 행만 유지
+            first = dict(group_rows[0])
+            first['검토결과'] = '중복제거'
+            first['비고'] = f"중복 {len(group_rows)}건 → 1건 유지 (업종: {', '.join(biz_types)})"
+            deduped.append(first)
 
-# ── 파일 저장 ────────────────────────────────────────
-# 중복 제거 결과
-output_path = os.path.join(BASE_DIR, '중복의심_검토_완료.csv')
-with open(output_path, 'w', encoding='utf-8-sig', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(deduped)
-print(f"\n저장: 중복의심_검토_완료.csv ({len(deduped)}건)")
+    print(f"\n=== 분류 결과 ===")
+    print(f"중복 제거 (1행 유지): {sum(1 for r in deduped if r.get('검토결과') == '중복제거')}건")
+    print(f"단일 행 (유지): {sum(1 for r in deduped if r.get('검토결과', '') == '')}건")
+    print(f"인간 검수 필요: {len(human_review)}건")
+    print(f"최종 행 수: {len(deduped)}건 (원본 {len(rows)}건에서 {len(rows) - len(deduped)}건 제거)")
 
-# 인간 검수 필요
-if human_review:
-    review_path = os.path.join(BASE_DIR, '중복의심_인간검수필요.csv')
-    with open(review_path, 'w', encoding='utf-8-sig', newline='') as f:
+    print(f"\n--- 인간 검수 대상 ---")
+    seen_groups = set()
+    for r in human_review:
+        name = r.get('가맹점명', '')
+        if name not in seen_groups:
+            seen_groups.add(name)
+            print(f"  ★ {name} | {r.get('비고', '')}")
+
+    return deduped, human_review
+
+
+def main():
+    # ── 데이터 로드 ──────────────────────────────────────
+    input_path = os.path.join(BASE_DIR, 'A_중복의심_검토.csv')
+    with open(input_path, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    deduped, human_review = run_dedup_review(rows)
+
+    # ── 파일 저장 ────────────────────────────────────────
+    # 중복 제거 결과
+    output_path = os.path.join(BASE_DIR, '중복의심_검토_완료.csv')
+    with open(output_path, 'w', encoding='utf-8-sig', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(human_review)
-    print(f"저장: 중복의심_인간검수필요.csv ({len(human_review)}건)")
+        writer.writerows(deduped)
+    print(f"\n저장: 중복의심_검토_완료.csv ({len(deduped)}건)")
+
+    # 인간 검수 필요
+    if human_review:
+        review_path = os.path.join(BASE_DIR, '중복의심_인간검수필요.csv')
+        with open(review_path, 'w', encoding='utf-8-sig', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(human_review)
+        print(f"저장: 중복의심_인간검수필요.csv ({len(human_review)}건)")
+
+
+if __name__ == '__main__':
+    main()

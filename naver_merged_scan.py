@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-A_주점관련_검토후보.csv의 업소를 네이버 지도에서 "한 번만" 방문해서
-업종(span.mwWcl)과 영업시간을 동시에 수집한 뒤, 판별 결과에 따라
-바로 두 개의 결과 파일로 나눈다.
+SRC_FILE(merge_review_targets.py가 만든 통합 대상)의 업소를 네이버 지도에서
+"한 번만" 방문해서 업종(span.mwWcl)과 영업시간을 동시에 수집한 뒤, 판별
+결과에 따라 바로 두 개의 결과 파일로 나눈다.
 
 왜 합쳤는가:
   naver_category.py(업종 판별)와 final_bar_dataset.py(영업시간)를 따로 돌리면
@@ -10,7 +10,7 @@ A_주점관련_검토후보.csv의 업소를 네이버 지도에서 "한 번만"
   열어서 업종과 영업시간 원본 텍스트를 같이 긁고, 그 자리에서 판별까지 끝낸다.
 
 흐름:
-  1. A_주점관련_검토후보.csv(원본)를 읽는다.
+  1. SRC_FILE(주점판별_대상통합.csv, merge_review_targets.py 실행 결과)을 읽는다.
   2. 업소마다 네이버 지도를 1회 방문 → 업종 + 영업시간 원본텍스트 동시 수집.
   3. 업종으로 주점의심 / 정상 / 판별불가 판별.
      - 주점의심 → 주점의심_업체목록.csv 로 분리 (영업시간 조회는 하지 않음,
@@ -32,6 +32,10 @@ from make_hours_csv import make_driver, parse_hours
 from naver_category import road_token, judge_by_category
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# merge_review_targets.py가 만든 통합 대상 (업소 데이터 원본 + 업종기타_재분류검토
+# + 중복의심_검토 처리 결과). 없으면 merge_review_targets.py를 먼저 실행할 것.
+SRC_FILE = '주점판별_대상통합.csv'
 
 TEST_LIMIT = 20  # 테스트로 앞에서 N개만 돌릴 때 정수 지정, 전체 적용 시 None
 
@@ -162,7 +166,7 @@ def fetch(driver, name, road_key, max_attempts=3):
 
 
 def main():
-    src_path = os.path.join(BASE_DIR, 'A_주점관련_검토후보.csv')
+    src_path = os.path.join(BASE_DIR, SRC_FILE)
     with open(src_path, 'r', encoding='utf-8-sig') as f:
         rows = list(csv.DictReader(f))
 
