@@ -212,7 +212,7 @@ def fetch_once(driver, name, query_hint):
 
     try:
         driver.get(url)
-        time.sleep(4)
+        time.sleep(3)
     except Exception as e:
         return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': f'error:load:{type(e).__name__}'}
 
@@ -308,7 +308,7 @@ def _result_suspicious(info):
     return cat_sus or hrs_sus
 
 
-def fetch(driver, name, query_hint, max_attempts=3):
+def fetch(driver, name, query_hint, max_attempts=2):
     """업소명+도로명 힌트로 검색한다. 주소 재검색 폴백은 업체 1건당 추가로
     네이버를 한 번 더 방문해야 해서 전체 수집 시간이 크게 늘어나므로 제거함."""
     info = {'category': '', 'hours_raw': '', 'addr_check': '', 'status': 'not_found'}
