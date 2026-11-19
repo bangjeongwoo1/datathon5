@@ -4,6 +4,11 @@ import multer from "multer";
 import cors from "cors";
 import dotenv from "dotenv";
 import Groq from "groq-sdk";
+import {
+  extractMenuFromImage,
+  geminiConfigured,
+  MenuOcrError,
+} from "./menuOcr.js";
 
 dotenv.config();
 
@@ -321,6 +326,103 @@ app.get("/api/merchants", async (req, res) => {
   }
 });
 
+
+// ---- 메뉴판 사진 OCR (Gemini) ----
+
+const menuImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+}).single("image");
+
+// 파일 앞부분(매직 바이트)으로 실제 이미지 형식을 확인한다.
+function sniffImageType(buf) {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return "image/png";
+  }
+  if (
+    buf.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buf.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+// 비용 보호용 간단한 호출 제한(서버 재시작 시 초기화되는 메모리 방식)
+const OCR_LIMIT_PER_IP_PER_HOUR = 10;
+const OCR_LIMIT_PER_DAY = 200;
+const ocrHits = new Map(); // ip -> 최근 1시간 요청 시각 목록
+let ocrDay = { date: "", count: 0 };
+
+function checkOcrLimit(ip) {
+  const now = Date.now();
+  const today = new Date(now).toISOString().slice(0, 10);
+
+  if (ocrDay.date !== today) ocrDay = { date: today, count: 0 };
+  if (ocrDay.count >= OCR_LIMIT_PER_DAY) {
+    return "오늘 처리 가능한 건수를 초과했습니다. 내일 다시 시도해 주세요.";
+  }
+
+  const recent = (ocrHits.get(ip) || []).filter(t => now - t < 3600_000);
+  if (recent.length >= OCR_LIMIT_PER_IP_PER_HOUR) {
+    return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  recent.push(now);
+  ocrHits.set(ip, recent);
+  ocrDay.count += 1;
+  return null;
+}
+
+app.post("/api/menu-ocr", (req, res) => {
+  if (!geminiConfigured()) {
+    return res.status(503).json({
+      error: "백엔드에 GEMINI_API_KEY를 설정해 주세요.",
+    });
+  }
+
+  menuImageUpload(req, res, async uploadError => {
+    if (uploadError) {
+      const tooLarge = uploadError.code === "LIMIT_FILE_SIZE";
+      return res.status(400).json({
+        error: tooLarge
+          ? "사진 용량은 5MB 이하여야 합니다."
+          : "사진 업로드 중 오류가 발생했습니다.",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "메뉴판 사진이 없습니다." });
+    }
+
+    const mimeType = sniffImageType(req.file.buffer);
+    if (!mimeType) {
+      return res.status(400).json({
+        error: "JPG, PNG, WEBP 형식의 사진만 올릴 수 있습니다.",
+      });
+    }
+
+    const limited = checkOcrLimit(req.ip);
+    if (limited) {
+      return res.status(429).json({ error: limited });
+    }
+
+    try {
+      const result = await extractMenuFromImage(req.file.buffer, mimeType);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof MenuOcrError) {
+        return res.status(error.status).json({ error: error.message });
+      }
+      console.error("메뉴 OCR 오류:", error.message);
+      res.status(500).json({ error: "메뉴판 분석에 실패했습니다." });
+    }
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`STT 서버 실행: http://localhost:${PORT}`);

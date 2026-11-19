@@ -120,6 +120,81 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 
 지도 및 음성 검색은 프론트엔드에서 불러온 공통 가맹점 데이터를 사용합니다.
 
+### POST /api/menu-ocr
+
+메뉴판 사진 한 장을 분석해 메뉴명과 가격을 JSON으로 돌려줍니다.
+**현재 단계는 분석 결과를 반환하는 것까지이고, DB 저장과 화면 연결은 아직 하지 않았습니다.**
+
+```powershell
+curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
+```
+
+#### 동작 흐름
+
+```text
+사진 업로드 → 형식·용량 검사 → Gemini로 메뉴·가격 추출 → 서버에서 가격 재검증 → JSON 반환
+```
+
+1. **업로드**: `multipart/form-data`의 `image` 필드로 보냅니다. JPG·PNG·WEBP, 5MB 이하만 받고, 파일 앞부분(매직 바이트)으로 실제 이미지 형식인지도 확인합니다.
+2. **호출 제한**: IP당 시간당 10건, 하루 전체 200건입니다. (서버 재시작 시 초기화되는 메모리 방식)
+3. **추출**: 서버가 Gemini를 호출합니다. API 키는 서버에만 있습니다. 응답은 JSON 스키마(`name`, `price_text`, `price_won`, `category`, `uncertain`)로 강제하고, 이미지 속 글자는 지시가 아니라 데이터로만 취급하도록 지시합니다.
+4. **장애 대응**: 혼잡(503)이면 같은 모델로 최대 2번 재시도합니다. 30초 안에 응답이 없거나(타임아웃) 한도 초과(429)이면 `GEMINI_FALLBACK_MODEL`로 전환합니다.
+5. **가격 재검증** (`backend/menuPrice.js`): 사진에 적힌 표기(`price_text`)를 서버가 직접 정수로 바꿉니다.
+   - 변환 예: `3000원`, `4,000원`, `1293won`, `1만원`, `만원`, `1만 2천원`, `삼천원`
+   - 서버가 계산한 값과 모델이 준 값이 다르면 `uncertain`
+   - 500원 미만, 10만 원 초과는 `rejected`
+   - 단위가 없는 100 미만 숫자(예: `10.0`)는 서버가 해석하지 못하므로 모델 값만으로 `uncertain` 처리
+6. **반환**: 검증을 통과한 `items`와 걸러진 `rejected`를 돌려줍니다.
+
+#### 응답 예시
+
+```json
+{
+  "model": "gemini-3.5-flash-lite",
+  "items": [
+    { "name": "김치찌개", "price_won": 3000, "price_text": "3000원", "category": "meal", "status": "ok" },
+    { "name": "돈까스", "price_won": 10000, "price_text": "10.0", "category": "meal", "status": "uncertain" }
+  ],
+  "rejected": []
+}
+```
+
+- `category`: `meal`(한 끼 식사), `side`(공기밥·사리·반찬), `drink`(음료), `alcohol`(주류). "만원 이하" 필터는 `meal`만 기준으로 합니다. 분류가 없거나 이상하면 `uncertain`입니다.
+- `status`: `ok` 또는 `uncertain`. 공개 여부가 아니라 **관리자 검수 우선순위**입니다. 모든 제보는 관리자 승인을 거칩니다.
+
+#### 환경변수 (`backend/.env`)
+
+| 이름 | 설명 |
+|---|---|
+| `GEMINI_API_KEY` | 필수. Google AI Studio에서 발급 |
+| `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.8-flash` |
+| `GEMINI_FALLBACK_MODEL` | 선택. 혼잡·타임아웃·한도 초과 시 대신 쓸 모델 |
+| `GEMINI_TIMEOUT_MS` | 선택. 호출 1회 제한 시간. 기본 30000 |
+
+모델 이름은 자주 바뀌므로 `https://generativelanguage.googleapis.com/v1beta/models`에서 현재 사용 가능한 이름을 확인하세요.
+
+#### DB 테이블 (`backend/migrations/001_menu_tables.sql`)
+
+| 테이블·뷰 | 역할 |
+|---|---|
+| `menu_submissions` | 제보 한 건(사진 한 장)의 OCR 결과와 승인 상태(`pending`/`approved`/`rejected`) |
+| `menus` | 관리자가 승인한 확정 메뉴. 지도와 필터는 이 테이블만 봅니다. |
+| `merchant_menu_summary` | 가게별 식사(`meal`) 최저가. "만원 이하" 필터용 뷰 |
+
+적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
+
+#### 앞으로 연결할 흐름
+
+```text
+지도에서 가게 선택 → 메뉴판 사진 올리기 → OCR → menu_submissions(pending)
+   → 관리자 승인 → menus 반영(그 가게 메뉴를 통째로 교체, 이전 기록은 보관)
+   → 가게 상세에 메뉴 표시 + "만원 이하 식사 메뉴" 필터
+```
+
+남은 작업: 제보 저장 API, 사진 올리기 화면, 관리자 승인 화면(로그인 필요), 메뉴 표시와 필터, Supabase 테이블 적용.
+
+백엔드 테스트: `cd backend; npm.cmd test`
+
 ## 5. 데이터 및 기능 관련 주의사항
 
 - 가맹점 데이터는 별도로 제공하는 PostgreSQL 백업 파일에 포함되어 있습니다.
