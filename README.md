@@ -120,6 +120,22 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 
 지도 및 음성 검색은 프론트엔드에서 불러온 공통 가맹점 데이터를 사용합니다.
 
+### POST /api/menu-ocr
+
+메뉴판 사진(JPG·PNG·WEBP, 5MB 이하)을 `multipart/form-data`의 `image` 필드로 보내면 Gemini가 메뉴명과 가격을 추출해 JSON으로 돌려줍니다. 아직 DB에는 저장하지 않습니다.
+
+- `backend/.env`에 `GEMINI_API_KEY`가 필요하고, `GEMINI_MODEL`로 모델을 바꿀 수 있습니다.
+- Gemini가 혼잡(503)하면 같은 모델로 최대 2번 재시도합니다. `GEMINI_FALLBACK_MODEL`을 설정하면 그래도 실패하거나 한도 초과(429)일 때 그 모델로 한 번 더 시도합니다.
+- 가격은 `10,000`, `1만원`, `만원`, `1만 2천원` 등 어떤 표기든 정수 원 단위(`price_won`)로 통일합니다.
+- 응답: `items`(`name`, `price_won`, `price_text`, `status: ok | uncertain`)와 `rejected`(범위 밖·해석 불가 항목).
+- IP당 시간당 10건, 하루 전체 200건으로 호출을 제한합니다.
+
+```powershell
+curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
+```
+
+백엔드 테스트: `cd backend; npm.cmd test`
+
 ## 5. 데이터 및 기능 관련 주의사항
 
 - 가맹점 데이터는 별도로 제공하는 PostgreSQL 백업 파일에 포함되어 있습니다.
