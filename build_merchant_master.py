@@ -294,82 +294,11 @@ def _try_search_iframe_match(driver, target_name):
         return False
 
 
-def fetch_via_address_places(driver, address, target_name):
-    """
-    업소명 검색이 완전히 실패했을 때 쓰는 2차 폴백.
-    주소만으로 검색하면 entryIframe/searchIframe 없이, 메인 페이지(iframe 밖)에
-    "이 주소의 장소" 목록이 뜨는 경우가 있다 (실사용으로 직접 확인함: 예를 들어
-    "GS25 포남제일점 / 편의점" 처럼 이름+업종이 바로 나열됨). 그 목록에서 업소명과
-    가장 비슷한 항목을 찾아 클릭해 상세 페이지(entryIframe)를 열고, 거기서부터는
-    _extract_from_entry_iframe로 기존과 동일하게 업종/영업시간을 추출한다.
-    """
-    url = f"https://map.naver.com/v5/search/{urllib.parse.quote(address)}"
-    try:
-        driver.get(url)
-        time.sleep(5)
-    except Exception as e:
-        return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': f'error:addr_load:{type(e).__name__}'}
-
-    target_norm = _normalize_name(target_name)
-
-    try:
-        body_text = driver.find_element(By.TAG_NAME, 'body').text
-        if '이 주소의 장소' not in body_text:
-            return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': 'not_found'}
-
-        # 목록이 "더보기"로 접혀있으면 펼쳐서 전체를 다 보이게 함
-        try:
-            more_btn = driver.find_element(
-                By.XPATH, "//*[contains(text(),'이 주소의 장소')]/following::*[contains(text(),'더보기')][1]"
-            )
-            driver.execute_script("arguments[0].click();", more_btn)
-            time.sleep(1.0)
-        except Exception:
-            pass
-
-        # 실제 클릭 대상이 div/span 등 비시맨틱 요소인 경우가 많아 태그 제한을 두지 않음
-        candidates = driver.find_elements(
-            By.XPATH,
-            "//*[contains(text(),'이 주소의 장소')]/following::*[position()<=80]"
-        )
-        clicked = False
-        for el in candidates:
-            text = (el.text or '').strip().split('\n')[0]
-            if not text or text in ('더보기', '가볼만한 곳') or '이 주소의 장소' in text:
-                continue
-            norm = _normalize_name(text)
-            if norm and (norm == target_norm or target_norm in norm or norm in target_norm):
-                try:
-                    driver.execute_script("arguments[0].scrollIntoView(true);", el)
-                    driver.execute_script("arguments[0].click();", el)
-                    clicked = True
-                    time.sleep(2.5)
-                    break
-                except Exception:
-                    continue
-
-        if not clicked:
-            return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': 'not_found'}
-    except Exception as e:
-        return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': f'error:addr_parse:{type(e).__name__}'}
-
-    try:
-        iframes = driver.find_elements(By.TAG_NAME, 'iframe')
-        ids = [f.get_attribute('id') or '' for f in iframes]
-    except Exception as e:
-        return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': f'error:iframe_list:{type(e).__name__}'}
-
-    if 'entryIframe' not in ids:
-        return {'category': '', 'hours_raw': '', 'addr_check': '', 'status': 'not_found'}
-
-    return _extract_from_entry_iframe(driver, '')
-
-
 def _result_suspicious(info):
-    # not_found는 여기서 재시도하지 않음 - fetch()가 1번만 보고 바로 주소
-    # 폴백으로 넘어간다 (searchIframe 타이밍 문제는 _try_search_iframe_match의
-    # WebDriverWait로 이미 대응함. 같은 업소명 검색을 반복해봐야 결과가 바뀔
-    # 가능성은 낮으므로 불필요한 재시도로 시간만 늘리지 않음).
+    # not_found는 여기서 재시도하지 않음 (searchIframe 타이밍 문제는
+    # _try_search_iframe_match의 WebDriverWait로 이미 대응함. 같은 업소명
+    # 검색을 반복해봐야 결과가 바뀔 가능성은 낮으므로 불필요한 재시도로
+    # 시간만 늘리지 않음).
     cat_sus = bool(re.match(r'^영업\s*(?:전|중|종료)', info['category'] or ''))
     raw = info['hours_raw']
     hrs_sus = False
@@ -379,32 +308,16 @@ def _result_suspicious(info):
     return cat_sus or hrs_sus
 
 
-def fetch(driver, name, query_hint, address=None, max_attempts=3):
-    """
-    1차: 업소명+도로명 힌트로 검색. 전부 실패(장소 자체를 못 찾음)하면
-    2차로 주소(address) 자체를 검색해 '이 주소에 있는 장소'를 확인하고,
-    거기서 얻은 업종/영업시간을 사용한다 (업소명 표기가 네이버와 달라서
-    검색이 전혀 안 걸리는 경우를 구제하기 위함).
-    반환: info 딕셔너리 + '검색방식' 키('업소명' 또는 '주소')
-    """
+def fetch(driver, name, query_hint, max_attempts=3):
+    """업소명+도로명 힌트로 검색한다. 주소 재검색 폴백은 업체 1건당 추가로
+    네이버를 한 번 더 방문해야 해서 전체 수집 시간이 크게 늘어나므로 제거함."""
     info = {'category': '', 'hours_raw': '', 'addr_check': '', 'status': 'not_found'}
     for attempt in range(max_attempts):
         info = fetch_once(driver, name, query_hint)
         if not _result_suspicious(info):
-            info['검색방식'] = '업소명'
             return info
         if attempt < max_attempts - 1:
             time.sleep(1.5)
-
-    # 업소명 검색이 끝까지 장소를 못 찾았을 때만 주소 검색(이 주소의 장소 목록)으로 재시도
-    if info['status'] == 'not_found' and address:
-        time.sleep(1.5)
-        addr_info = fetch_via_address_places(driver, address, name)
-        if addr_info['status'] == 'ok':
-            addr_info['검색방식'] = '주소'
-            return addr_info
-
-    info['검색방식'] = '업소명'
     return info
 
 
@@ -442,7 +355,7 @@ def main():
     else:
         target_rows = rows
 
-    # 네이버기반판별/주소확인/검색방식/수집상태는 3개 파일로 분리되는 순간
+    # 네이버기반판별/주소확인/수집상태는 3개 파일로 분리되는 순간
     # 파일명 자체가 그 정보를 담으므로 저장 컬럼에는 넣지 않음(내부 처리/로그용으로만 사용)
     out_fieldnames = ['merchant_id'] + fieldnames + ['Cuisine']
 
@@ -458,10 +371,10 @@ def main():
             road_hint = road_token_from_address(address) or row.get('signguNm', '')
 
             try:
-                info = fetch(driver, name, road_hint, address=address)
+                info = fetch(driver, name, road_hint)
             except Exception as e:
                 info = {'category': '', 'hours_raw': '', 'addr_check': '',
-                         'status': f'error:unexpected:{type(e).__name__}', '검색방식': '업소명'}
+                         'status': f'error:unexpected:{type(e).__name__}'}
 
             verdict = judge_by_category(info['category']) if info['status'] == 'ok' else '판별불가'
             day_hours = extract_day_hours(info['hours_raw']) if info['hours_raw'] else \
@@ -472,7 +385,6 @@ def main():
             out_row['Cuisine'] = info['category']
             out_row['네이버기반판별'] = verdict
             out_row['주소확인'] = info['addr_check']
-            out_row['검색방식'] = info.get('검색방식', '업소명')
             out_row['수집상태'] = info['status']
 
             # 네이버에서 찾은 값이 있을 때만 덮어쓰고, 못 찾으면 원본 값 유지
@@ -491,10 +403,9 @@ def main():
             results.append(out_row)
 
             hrs_display = f"평일{wd_o or '-'}~{wd_c or '-'} 토{sa_o or '-'}~{sa_c or '-'} 일{su_o or '-'}~{su_c or '-'}"
-            mode_display = f"[{out_row['검색방식']}검색]" if out_row['검색방식'] == '주소' else ''
-            print(f"  [{i+1}/{len(target_rows)}] {name[:18]:18s} -> {verdict:6s}{mode_display} | "
+            print(f"  [{i+1}/{len(target_rows)}] {name[:18]:18s} -> {verdict:6s} | "
                   f"Cuisine:{info['category'] or '(없음)':10s} | {hrs_display}")
-            time.sleep(2.0)
+            time.sleep(0.5)
 
     finally:
         driver.quit()
