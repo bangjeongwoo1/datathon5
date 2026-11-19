@@ -163,11 +163,11 @@ def _extract_from_entry_iframe(driver, query_hint):
             pass
 
         body = ''
-        for _ in range(3):
+        for _ in range(2):
             body = driver.find_element(By.TAG_NAME, 'body').text
             if category or re.search(r'\d{1,2}:\d{2}', body) or '영업시간 정보 수정' in body:
                 break
-            time.sleep(1.0)
+            time.sleep(0.5)
             if not category:
                 try:
                     category = driver.find_element(By.CSS_SELECTOR, 'span.mwWcl').text.strip()
@@ -280,7 +280,9 @@ def _try_search_iframe_match(driver, target_name):
             try:
                 driver.execute_script("arguments[0].click();", link)
                 clicked = True
-                time.sleep(2.5)
+                # entryIframe 전환 대기는 호출부(_extract_from_entry_iframe)의
+                # WebDriverWait(7)가 이미 담당하므로 여기선 최소한만 대기
+                time.sleep(1.0)
                 break
             except Exception:
                 continue
