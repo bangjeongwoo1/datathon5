@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+*.pyc
+__pycache__/
+=======
 node_modules/
 .env
 .env.*
@@ -5,3 +9,4 @@ backend/.env
 # 제보된 메뉴판 원본 사진(승인·반려 후 삭제하는 임시 보관 폴더)
 backend/uploads/
 !.env.example
+>>>>>>> e7bd0f476e23b02b63658ba7337e5174dd1b0d82

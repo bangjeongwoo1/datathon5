@@ -308,14 +308,27 @@ app.get("/api/merchants", async (req, res) => {
     );
 
     const dataResult = await pool.query(
-      `SELECT *
-       FROM public.merchants
-       ${where}
-       ORDER BY merchant_id
-       LIMIT $${params.length + 1}
-       OFFSET $${params.length + 2}`,
-      [...params, limit, offset]
-    );
+  `SELECT
+      m.*,
+      n.naver_cuisine,
+      n.naver_classification,
+      n.weekday_open,
+      n.weekday_close,
+      n.saturday_open,
+      n.saturday_close,
+      n.sunday_open,
+      n.sunday_close,
+      n.address_check,
+      n.match_status
+   FROM public.merchants AS m
+   LEFT JOIN public.merchant_naver_info AS n
+     ON m.merchant_id = n.merchant_id
+   ${where}
+   ORDER BY m.merchant_id
+   LIMIT $${params.length + 1}
+   OFFSET $${params.length + 2}`,
+  [...params, limit, offset]
+);
 
     res.json({
       total: countResult.rows[0].total,

@@ -11,8 +11,9 @@ import type { Merchant } from './merchants'
 import './App.css'
 import './MerchantList.css'
 import type { Coordinates } from './kakao'
+import { useAuth } from './useAuth'
 function Icon({name,size=20}:{name:string;size?:number}) {
- const paths:Record<string,ReactNode>={search:<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></>,pin:<><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,arrow:<><path d="m4 10 16-6-6 16-3-7-7-3Z"/><path d="m11 13 9-9"/></>,phone:<path d="m7 3 3 5-3 3c2 3 3 4 6 6l3-3 5 3c0 5-4 5-7 3C7 17 3 12 3 7c0-3 2-4 4-4Z"/>,clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,reset:<><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></>,target:<><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></>,info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></>,leaf:<><path d="M20 3C8 1 2 7 5 15c8 5 16-1 15-12Z"/><path d="M3 21 15 9"/></>,chevron:<path d="m7 10 5 5 5-5"/>}
+ const paths:Record<string,ReactNode>={search:<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></>,pin:<><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,arrow:<><path d="m4 10 16-6-6 16-3-7-7-3Z"/><path d="m11 13 9-9"/></>,phone:<path d="m7 3 3 5-3 3c2 3 3 4 6 6l3-3 5 3c0 5-4 5-7 3C7 17 3 12 3 7c0-3 2-4 4-4Z"/>,clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,reset:<><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></>,target:<><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></>,info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></>,leaf:<><path d="M20 3C8 1 2 7 5 15c8 5 16-1 15-12Z"/><path d="M3 21 15 9"/></>,chevron:<path d="m7 10 5 5 5-5"/>,user:<><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 5-5.5 7-5.5S17.5 16 19 20"/></>}
  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]||paths.pin}</svg>
 }
 
@@ -64,6 +65,8 @@ const [centerRequest] = useState(0)
  const policyTrigger=useRef<HTMLButtonElement|null>(null)
  const closePolicy=()=>{setPolicy(null);policyTrigger.current?.focus()}
  const [clusterIds,setClusterIds]=useState<number[]|null>(null)
+ const {user,sessionLoading,signingIn,authError,signInWithGoogle,signOut,clearAuthError}=useAuth()
+ const [userMenuOpen,setUserMenuOpen]=useState(false)
 
 const receiveLocation = useCallback((position: Coordinates) => {
   setUserLocation(position)
@@ -235,6 +238,51 @@ onClick={() => {
       </div>
     )}
   </div>
+
+  <div className="auth-wrap">
+    {sessionLoading ? (
+      <span className="auth-loading" aria-live="polite">
+        확인 중…
+      </span>
+    ) : user ? (
+      <div className="user-wrap">
+        <button
+          className="region-button"
+          onClick={() => setUserMenuOpen(!userMenuOpen)}
+          aria-expanded={userMenuOpen}
+        >
+          <Icon name="user" size={17} />
+          <span>{user.user_metadata?.full_name || user.email}</span>
+          <Icon name="chevron" size={16} />
+        </button>
+
+        {userMenuOpen && (
+          <div className="region-menu">
+            <strong>{user.user_metadata?.full_name || '로그인됨'}</strong>
+            <p>{user.email}</p>
+            <button
+              onClick={async () => {
+                setUserMenuOpen(false)
+                await signOut()
+              }}
+            >
+              로그아웃
+            </button>
+          </div>
+        )}
+      </div>
+    ) : (
+      <button
+        className="region-button"
+        onClick={signInWithGoogle}
+        disabled={signingIn}
+        aria-busy={signingIn}
+      >
+        <Icon name="user" size={17} />
+        <span>{signingIn ? '이동 중…' : 'Google로 로그인'}</span>
+      </button>
+    )}
+  </div>
 </header>
 
  <div className="announcement"><Icon name="info" size={17}/><strong>이용 안내</strong><p>배달 주문은 매장에 문의 후 이용하시기 바랍니다. <span>일부 가맹점은 포장 및 매장 식사만 지원됩니다.</span></p><span className="banner-tag">함께하는 따뜻한 한 끼</span></div>
@@ -289,7 +337,7 @@ onClick={() => {
 </button></div><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
  <div className="map-legend"><strong>가맹점 유형</strong><span><i className="blue"/>일반음식점</span><span><i className="green"/>편의점</span><span><i className="orange"/>베이커리/간식</span><span><i className="purple"/>마트</span></div></section></main>
  <footer className="footer"><div className="footer-brand"><img className="footer-logo" src="/eatda-logo.png" alt="잇다 로고"/><div><strong>아동급식카드 종합지원센터</strong><p>아이들의 건강한 오늘, 함께 만드는 따뜻한 내일</p></div></div><div className="footer-data">지자체 아동복지과 공공데이터 연계 안내<span>공공데이터 기반 정보이며, 최신 가맹 여부와 영업 상태는 방문 전 확인해 주세요.</span></div><div className="footer-support"><span>고객지원 문의 <strong>1544-3674</strong></span><div><button onClick={e=>{policyTrigger.current=e.currentTarget;setPolicy('이용약관')}}>이용약관</button><i/><button onClick={e=>{policyTrigger.current=e.currentTarget;setPolicy('개인정보처리방침')}}>개인정보처리방침</button></div></div></footer>
- {notice&&<div className="toast" role="status"><Icon name="info" size={18}/>{notice}<button aria-label="알림 닫기" onClick={()=>setNotice('')}>×</button></div>}
+ {(notice||authError)&&<div className="toast" role="status"><Icon name="info" size={18}/>{notice||authError}<button aria-label="알림 닫기" onClick={()=>{setNotice('');clearAuthError()}}>×</button></div>}
  {policy&&<div className="modal-backdrop" onClick={closePolicy}><section className="policy-modal" role="dialog" aria-modal="true" aria-label={policy} onKeyDown={e=>{if(e.key==='Escape')closePolicy();if(e.key==='Tab')e.preventDefault()}} onClick={e=>e.stopPropagation()}><h2>{policy} · 시안 안내</h2><p>이 화면은 비공식 디자인 프로토타입입니다. 개인정보를 수집하거나 저장하지 않으며 검색과 필터는 브라우저 안에서 처리합니다. 길찾기는 외부 카카오맵 검색으로 연결됩니다.</p><p>실제 약관 및 개인정보처리방침은 운영기관의 공식 안내를 확인해 주세요.</p><button autoFocus onClick={closePolicy}>확인</button></section></div>}
  </div>
 }
