@@ -6,7 +6,7 @@ import { mealsWithinBudget } from './mealPrice'
 import { createHandsFree } from './recordedHandsFree'
 import { estimateArrival, arrivalCommand, merchantCallUrl, helpCallScript, requestMerchantCall } from './arrivalAssist'
 import type { ArrivalReading } from './arrivalAssist'
-import { guideSelection } from './voiceActivation'
+import { guideSelection, normalizeVoiceCommand } from './voiceActivation'
 import type { Merchant } from './merchants'
 import VoiceSearch from './VoiceSearch'
 import { parseVoiceIntent } from './voiceIntent'
@@ -24,10 +24,12 @@ class GuideLocationError extends Error {}
 class GuideApiError extends Error {
   status: number
   path: string
-  constructor(path: string, status: number) {
+  code: string
+  constructor(path: string, status: number, code = '') {
     super('안내 API 요청 실패')
     this.path = path
     this.status = status
+    this.code = code
   }
 }
 const MAX_ACCURACY = 35
@@ -42,8 +44,22 @@ async function post<T>(path: string, body: unknown, signal: AbortSignal): Promis
     body: JSON.stringify(body),
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
   })
-  if (!response.ok) throw new GuideApiError(path, response.status)
+  if (!response.ok) {
+    const data = await response.json().catch(() => null)
+    throw new GuideApiError(path, response.status, typeof data?.error === 'string' ? data.error : '')
+  }
   return response.json() as Promise<T>
+}
+
+function aiFailureMessage(error: unknown) {
+  if (error instanceof GuideApiError) {
+    if (error.code === 'AI_NOT_CONFIGURED') return '대화 AI의 서버 설정이 빠져 있어요. 서버의 Groq 키와 텍스트 모델 설정을 확인해 주세요.'
+    if (error.code === 'AI_AUTH_FAILED') return '대화 AI 인증이 거절됐어요. 서버의 Groq 키와 모델 사용 권한을 확인해 주세요.'
+    if (error.status === 429) return '대화 AI의 요청 한도에 도달했어요. 잠시 후 다시 말씀해 주세요.'
+    if (error.status === 404) return '연결된 서버에 대화 AI 기능이 없어요. 서버 배포와 API 주소를 확인해 주세요.'
+    if (error.code === 'AI_INVALID_RESPONSE') return '대화 AI의 응답을 처리하지 못했어요. 같은 요청을 다시 말씀해 주세요.'
+  }
+  return '대화 AI가 이번 요청에 응답하지 못했어요. 잠시 후 다시 말씀해 주세요.'
 }
 
 function asFix(position: GeolocationPosition): Fix {
@@ -208,13 +224,11 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       if (typeof answer.reply !== 'string' || !answer.reply.trim()) throw new Error('Empty answer')
       setAiNotice('')
       return say(answer.reply)
-    } catch {
+    } catch (error) {
       if (request.signal.aborted) return
-      setAiNotice('AI 연결을 사용할 수 없어 DB 조회 결과를 기본 안내로 읽고 있어요.')
+      setAiNotice('대화 AI 응답 재시도가 필요해요.')
+      return say(aiFailureMessage(error))
     }
-    const meal = availableMenu(option.store, option.search)
-    const order = ['첫 번째', '두 번째', '세 번째'][index] ?? `${index + 1}번째`
-    say(`${order} 가게는 ${option.store.name}입니다.${meal ? ` ${meal.name}은 ${meal.price.toLocaleString('ko-KR')}원입니다.${meal.preview ? ' 후보 가격이에요.' : ''}` : ' 메뉴 가격은 미확인이에요.'} 선택하려면 “잇다야, 여기로 안내”라고 말씀하세요.`)
   }
 
   function say(message: string) {
@@ -391,7 +405,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     if (command === '음성 요청 도움말') {
       return say('불러 주신 건 들었어요. 요청을 이해하지 못했어요. 안내가 끝나면 “여기로 안내” 또는 “근처 식당 찾아줘”라고 다시 말씀해 주세요.')
     }
-    command = command.trim().replace(/^(?:잇다|잇따|이따|있다|이다|이타)\s*야[,!.\s]*/, '').trim()
+    command = normalizeVoiceCommand(command)
     if (!command) return say('네, 말씀하세요.')
     const entryRequest = arrivalCommand(command, arrivalRef.current?.stage === 'help-offered')
     if (entryRequest === 'accept-call') return prepareArrivalCall()
@@ -469,12 +483,10 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
             setAiNotice('')
           }
         }
-      } catch {
+      } catch (error) {
         if (signal.aborted) return
-        setAiNotice('AI 연결을 사용할 수 없어 기본 검색을 사용하고 있어요.')
-        if (intent.action === 'search' && intent.query?.terms === command.trim()) {
-          return say('말씀은 들었어요. 지금은 대화 AI가 연결되지 않아 이 표현을 이해하기 어려워요. 가게 이름이나 음식 종류를 말씀해 주세요.')
-        }
+        setAiNotice('대화 AI 응답 재시도가 필요해요.')
+        return say(aiFailureMessage(error))
       }
       if (signal.aborted) return
       if (intent.action === 'reply' && intent.reply) return say(intent.reply)
