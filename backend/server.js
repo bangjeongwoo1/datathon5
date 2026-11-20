@@ -9,6 +9,11 @@ import {
   geminiConfigured,
   MenuOcrError,
 } from "./menuOcr.js";
+import {
+  isValidMerchantId,
+  merchantExists,
+  submitMenuPhoto,
+} from "./menuSubmissions.js";
 
 dotenv.config();
 
@@ -391,14 +396,18 @@ function checkOcrLimit(ip) {
   return null;
 }
 
-app.post("/api/menu-ocr", (req, res) => {
+function requireGemini(req, res, next) {
   if (!geminiConfigured()) {
     return res.status(503).json({
       error: "백엔드에 GEMINI_API_KEY를 설정해 주세요.",
     });
   }
+  next();
+}
 
-  menuImageUpload(req, res, async uploadError => {
+// 사진 업로드를 받고 용량·형식을 확인한다. 통과하면 req.menuImage = { buffer, mimeType }
+function parseMenuImage(req, res, next) {
+  menuImageUpload(req, res, uploadError => {
     if (uploadError) {
       const tooLarge = uploadError.code === "LIMIT_FILE_SIZE";
       return res.status(400).json({
@@ -419,23 +428,82 @@ app.post("/api/menu-ocr", (req, res) => {
       });
     }
 
-    const limited = checkOcrLimit(req.ip);
-    if (limited) {
-      return res.status(429).json({ error: limited });
+    req.menuImage = { buffer: req.file.buffer, mimeType };
+    next();
+  });
+}
+
+function sendMenuError(res, error, label) {
+  if (error instanceof MenuOcrError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(`${label}:`, error.message);
+  res.status(500).json({ error: "메뉴판 처리에 실패했습니다." });
+}
+
+// 분석 결과만 돌려준다(저장하지 않음). 시험·미리보기용
+app.post("/api/menu-ocr", requireGemini, parseMenuImage, async (req, res) => {
+  const limited = checkOcrLimit(req.ip);
+  if (limited) {
+    return res.status(429).json({ error: limited });
+  }
+
+  try {
+    const { buffer, mimeType } = req.menuImage;
+    res.json(await extractMenuFromImage(buffer, mimeType));
+  } catch (error) {
+    sendMenuError(res, error, "메뉴 OCR 오류");
+  }
+});
+
+// 가게의 메뉴판 사진을 제보한다: OCR → 검수 대기(menu_submissions)에 저장.
+// 관리자가 승인하기 전에는 지도에 반영되지 않는다.
+app.post(
+  "/api/merchants/:merchantId/menu-submissions",
+  requireGemini,
+  parseMenuImage,
+  async (req, res) => {
+    const { merchantId } = req.params;
+
+    if (!isValidMerchantId(merchantId)) {
+      return res.status(400).json({ error: "가맹점 번호가 올바르지 않습니다." });
     }
 
     try {
-      const result = await extractMenuFromImage(req.file.buffer, mimeType);
-      res.json(result);
-    } catch (error) {
-      if (error instanceof MenuOcrError) {
-        return res.status(error.status).json({ error: error.message });
+      // AI 호출 비용이 들기 전에 가게부터 확인한다.
+      if (!(await merchantExists(pool, merchantId))) {
+        return res.status(404).json({ error: "가맹점을 찾을 수 없습니다." });
       }
-      console.error("메뉴 OCR 오류:", error.message);
-      res.status(500).json({ error: "메뉴판 분석에 실패했습니다." });
+
+      const limited = checkOcrLimit(req.ip);
+      if (limited) {
+        return res.status(429).json({ error: limited });
+      }
+
+      const { buffer, mimeType } = req.menuImage;
+      const ocr = await extractMenuFromImage(buffer, mimeType);
+
+      if (ocr.items.length === 0) {
+        return res.status(422).json({
+          error: "메뉴판에서 메뉴와 가격을 읽지 못했습니다. 메뉴판이 잘 보이도록 다시 촬영해 주세요.",
+          rejected: ocr.rejected,
+        });
+      }
+
+      const submission = await submitMenuPhoto(pool, {
+        merchantId,
+        buffer,
+        mimeType,
+        ocr,
+        user: req.user, // 로그인 기능이 붙으면 채워진다.
+      });
+
+      res.status(201).json(submission);
+    } catch (error) {
+      sendMenuError(res, error, "메뉴 제보 저장 오류");
     }
-  });
-});
+  }
+);
 
 app.listen(PORT, () => {
   console.log(`STT 서버 실행: http://localhost:${PORT}`);
