@@ -93,6 +93,8 @@ export async function loadRegionMerchants(
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
       // 화면 내 임시 ID를 부여
       id: index + 1,
+      // DB의 진짜 기본키. 리뷰 등 DB 행을 정확히 가리켜야 하는 기능은 이 값을 사용한다.
+      merchantId: row.merchant_id,
       name: row.name,
       address: row.address ?? '',
       category: toUiCategory(row.category),

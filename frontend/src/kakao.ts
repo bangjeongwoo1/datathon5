@@ -32,7 +32,7 @@ export interface MapInstance {
 }
 export interface MapOverlay { setMap(map:MapInstance|null):void }
 export interface MapMarker extends MapOverlay {
- getPosition():MapPosition; setImage(image:object):void; setZIndex(index:number):void
+ getPosition():MapPosition; setPosition(position:MapPosition):void; setImage(image:object):void; setZIndex(index:number):void
 }
 export interface MapCluster {
  getMarkers():MapMarker[]; getCenter():MapPosition; getSize():number;
