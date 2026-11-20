@@ -1,12 +1,14 @@
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiUrl } from './apiUrl'
 type VoiceSearchProps = {
   onRecognized: (text: string) => void
+  onRecordingChange?: (value: boolean) => void
   resultCount: number
 }
 export default function VoiceSearch({
   onRecognized,
+  onRecordingChange,
   resultCount
 }: VoiceSearchProps) {
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -17,6 +19,15 @@ export default function VoiceSearch({
   const [loading, setLoading] = useState(false)
   const [recognizedText, setRecognizedText] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => () => {
+    const recorder = recorderRef.current
+    if (recorder?.state === 'recording') {
+      recorder.onstop = null
+      recorder.stop()
+    }
+    streamRef.current?.getTracks().forEach(track => track.stop())
+  }, [])
 
   async function startRecording() {
     setError('')
@@ -80,6 +91,7 @@ export default function VoiceSearch({
 
       recorderRef.current = recorder
       recorder.start()
+      onRecordingChange?.(true)
       setRecording(true)
     } catch {
       setError('마이크 사용 권한을 확인해 주세요.')
@@ -88,6 +100,7 @@ export default function VoiceSearch({
 
   function stopRecording() {
     recorderRef.current?.stop()
+    onRecordingChange?.(false)
     setRecording(false)
   }
 

@@ -1,0 +1,17 @@
+.voice-guide { display: grid; gap: 8px; margin-block: 12px; }
+.voice-guide form { display: flex; gap: 6px; }
+.voice-guide form input { flex: 1; min-width: 0; }
+.voice-guide button, .voice-guide input { padding: 10px; min-height: 48px; }
+.voice-guide p { margin: 0; }
+.voice-guide ul { margin: 0; padding-left: 18px; }
+.voice-audio audio { width: 100%; max-width: 100%; }
+.voice-guide ol { margin: 0; padding-left: 24px; }
+.voice-guide button:focus-visible, .voice-guide input:focus-visible { outline: 3px solid #163bc4; outline-offset: 3px; }
+.voice-guide .voice-mode-toggle { color: #fff; background: #264edb; border: 0; border-radius: 8px; font-weight: 700; }
+.voice-guide [aria-current="true"] { border: 2px solid #264edb; }
+.voice-skip-link { position: absolute; left: 8px; top: 8px; padding: 12px; background: white; color: #163bc4; z-index: 10000; transform: translateY(-160%); }
+.voice-skip-link:focus { transform: none; outline: 3px solid #163bc4; }
+
+.voice-guide { min-width: 0; overflow-wrap: anywhere; }
+.voice-guide form { flex-wrap: wrap; }
+.voice-guide form input { min-width: min(180px, 100%); }

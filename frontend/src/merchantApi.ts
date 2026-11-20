@@ -1,6 +1,7 @@
 
 import { apiUrl } from './apiUrl.ts'
 import type { Merchant } from './merchants'
+import { parseConfirmedMeals } from './mealPrice.ts'
 
 type DbMerchant = {
   // 숫자·문자열 어느 쪽으로 오든 문자열로 통일해서 쓴다.
@@ -26,6 +27,7 @@ type DbMerchant = {
   // 관리자가 승인한 메뉴 기준(merchant_menu_summary). 승인된 메뉴가 없으면 둘 다 null.
   in_under_10000?: 'Y' | 'N' | null
   min_meal_price_won?: number | string | null
+  confirmed_meals?: unknown
 }
 
 type MerchantResponse = {
@@ -113,6 +115,7 @@ export async function loadRegionMerchants(
     const weekday = formatHours(row.weekday_open, row.weekday_close)
     const saturday = formatHours(row.saturday_open, row.saturday_close)
     const sunday = formatHours(row.sunday_open, row.sunday_close)
+    const confirmedMeals = parseConfirmedMeals(row.confirmed_meals)
     return {
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
       // 화면 내 임시 ID를 부여
@@ -159,7 +162,8 @@ export async function loadRegionMerchants(
       // 원본 DB에서 확인되지 않은 항목은 임의 생성하지 않음
       open: false,
       delivery: false,
-      menu: [],
+      confirmedMeals,
+      menu: confirmedMeals.map(meal => `${meal.name} ${meal.price.toLocaleString('ko-KR')}원`),
       hours: '',
       distance: 0,
       ...(row.phone ? { phone: row.phone } : {}),
