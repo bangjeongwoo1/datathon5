@@ -1,30 +1,3 @@
-<<<<<<< HEAD
-# 4개 지역 가맹점 주점/비주점 분류
-
-강릉시 / 원주시 / 춘천시 / 홍천군 가맹점 CSV를 하나로 합친 뒤, 네이버 지도에서
-업종과 요일별(평일/토/일/배달) 영업시간을 수집해 `주점.csv` / `비주점.csv` /
-`검수필요.csv` 세 파일로 분류합니다.
-
-## 실행
-
-```
-python build_merchant_master.py
-```
-
-`build_merchant_master.py` 안의 `TEST_SAMPLE_PER_FILE` 값으로 지역별 샘플 개수를
-조절할 수 있습니다 (0이면 전체 실행).
-
-## 파일 구성
-
-- `build_merchant_master.py` — 메인 스크립트
-- `make_hours_csv.py` / `naver_category.py` — `build_merchant_master.py`가 가져다 쓰는
-  크롤링 드라이버 생성, 업종 기반 주점 판별 함수가 들어있는 의존 모듈
-- `강릉시.csv` / `원주시.csv` / `춘천시.csv` / `홍천군.csv` — 입력 데이터 (중복·업종기타 처리 완료본)
-
-## 필요 패키지
-
-`selenium`, `webdriver-manager` (Microsoft Edge 드라이버 자동 설치)
-=======
 # 잇다 (EATDA)
 
 아동급식카드 이용자를 위한 지역별 가맹점 검색 및 도보 경로 안내 서비스입니다.
@@ -259,4 +232,30 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu
 주요 변경 사항은 **4개 지역 확장, PostgreSQL 데이터베이스 구축, Express 가맹점 API 개발 및 기존 지도·음성 기능 연동**입니다.
 
 추가 기능 개발 후 Pull Request를 통해 팀 프로젝트의 `main` 브랜치에 병합할 수 있습니다.
->>>>>>> e7bd0f476e23b02b63658ba7337e5174dd1b0d82
+
+## 7. 4개 지역 가맹점 주점/비주점 분류 (데이터 처리 스크립트)
+
+강릉시 / 원주시 / 춘천시 / 홍천군 가맹점 CSV를 하나로 합친 뒤, 네이버 지도에서
+업종과 요일별(평일/토/일/배달) 영업시간을 수집해 `주점.csv` / `비주점.csv` /
+`검수필요.csv` 세 파일로 분류합니다.
+
+### 실행
+
+```
+python build_merchant_master.py
+```
+
+수집 결과는 업체 1건마다 `가맹점_수집_진행.csv`에 저장되며, 중단했다가 다시 실행하면
+이미 처리한 `merchant_id`는 건너뛰고 이어서 진행합니다. `merchant_id`는 4개 지역 CSV를
+합친 순서대로 한 번만 배정하므로, 수집 도중에는 4개 지역 CSV를 수정하지 마세요.
+
+### 파일 구성
+
+- `build_merchant_master.py` — 메인 스크립트
+- `make_hours_csv.py` / `naver_category.py` — `build_merchant_master.py`가 가져다 쓰는
+  크롤링 드라이버 생성, 업종 기반 주점 판별 함수가 들어있는 의존 모듈
+- `강릉시.csv` / `원주시.csv` / `춘천시.csv` / `홍천군.csv` — 입력 데이터 (중복·업종기타 처리 완료본)
+
+### 필요 패키지
+
+`selenium`, `webdriver-manager` (Microsoft Edge 드라이버 자동 설치)
