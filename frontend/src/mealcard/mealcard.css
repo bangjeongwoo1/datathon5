@@ -1,0 +1,170 @@
+/* 가맹 권유 지도 스타일. 팀 화면에 영향이 없도록 모든 규칙을 .mc 아래에만 둔다.
+   Next.js 버전의 SEED Design 모양(둥근 카드, 세그먼트, 스위치, 밑줄 탭)을 일반 CSS로 옮겼다. 포인트 색은 파랑. */
+.mc {
+  --mc-brand: #3182f6;
+  --mc-brand-weak: #eaf2fe;
+  --mc-ink: #1a1c20;
+  --mc-muted: #6b7684;
+  --mc-line: #e5e8eb;
+  --mc-weak: #f2f4f6;
+  --mc-bg: #f7f8fa;
+  --mc-surface: #fff;
+  --mc-member: #2a78d6;
+  --mc-cvs: #eda100;
+  --mc-non: #eb6834;
+  --mc-ask: #1baf7a;
+  --mc-covered: #9a9993;
+  --mc-positive: #13a26b;
+  --mc-positive-weak: #e6f7ef;
+  display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+  background: var(--mc-bg); color: var(--mc-ink); font-size: 14px; line-height: 1.5;
+}
+.mc * { box-sizing: border-box; }
+.mc button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left; }
+.mc h1, .mc h3, .mc p { margin: 0; }
+.mc .mc-grow { min-width: 0; flex: 1; }
+.mc .mc-muted { color: var(--mc-muted); }
+.mc .xs { font-size: 12px; }
+.mc .sm { font-size: 13px; line-height: 1.6; }
+.mc .strong { font-weight: 700; }
+.mc .brand { color: var(--mc-brand); }
+.mc .mono, .mc .num { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
+.mc .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 헤더 */
+.mc-header { display: flex; align-items: center; gap: 12px; height: 56px; flex-shrink: 0; padding: 0 16px; background: var(--mc-surface); border-bottom: 1px solid var(--mc-line); }
+.mc-logo { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--mc-brand); color: #fff; }
+.mc-header h1 { font-size: 16px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-back { flex-shrink: 0; padding: 6px 12px; border-radius: 8px; background: var(--mc-weak); color: var(--mc-ink); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.mc-back:hover { background: #e5e8eb; }
+.mc-header p { font-size: 12px; color: var(--mc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 본문: 지도 + 사이드바 */
+.mc-main { position: relative; display: flex; flex: 1; min-height: 0; }
+.mc-mapwrap { position: relative; flex: 1; min-width: 0; }
+.mc-map { width: 100%; height: 100%; }
+.mc-map-msg { display: grid; place-items: center; height: 100%; padding: 24px; text-align: center; color: var(--mc-muted); }
+.mc-side { display: none; flex-direction: column; gap: 16px; width: 400px; flex-shrink: 0; min-height: 0; overflow: hidden; padding: 16px; background: var(--mc-surface); border-left: 1px solid var(--mc-line); }
+
+/* 지도 위에 뜨는 카드 공통 */
+.mc-float { position: absolute; left: 12px; z-index: 10; border: 1px solid var(--mc-line); border-radius: 16px; background: var(--mc-surface); box-shadow: 0 4px 16px rgb(0 0 0 / .08); }
+
+/* 조건 패널 */
+.mc-ctrl-mini { top: 12px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-weight: 700; }
+.mc-ctrl { top: 12px; display: none; flex-direction: column; gap: 12px; width: min(420px, calc(100% - 24px)); padding: 12px; }
+.mc-ctrl.open { display: flex; }
+.mc-ctrl-head { display: flex; align-items: center; justify-content: space-between; }
+.mc-field { display: flex; flex-direction: column; gap: 6px; }
+.mc-switches { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+
+/* 세그먼트 */
+.mc-seg { display: flex; padding: 4px; border-radius: 999px; background: var(--mc-weak); }
+.mc-seg button { flex: 1; min-width: 0; padding: 7px 4px; border-radius: 999px; text-align: center; font-weight: 600; color: var(--mc-muted); transition: background .15s, color .15s; }
+.mc-seg button.on { background: var(--mc-surface); color: var(--mc-ink); font-weight: 700; box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+
+/* 스위치 */
+.mc-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; }
+.mc-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mc-switch .track { position: relative; width: 28px; height: 16px; border-radius: 999px; background: #d1d6db; transition: background .15s; }
+.mc-switch .thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.mc-switch input:checked + .track { background: var(--mc-brand); }
+.mc-switch input:checked + .track .thumb { transform: translateX(12px); }
+.mc-switch input:focus-visible + .track { outline: 3px solid #93b8fd; outline-offset: 2px; }
+
+/* 안내, 카드 */
+.mc-hint { bottom: 162px; padding: 6px 12px; font-size: 12px; }
+.mc-card { bottom: 162px; display: flex; flex-direction: column; gap: 12px; width: min(360px, calc(100% - 24px)); padding: 16px; }
+.mc-card-head { display: flex; align-items: flex-start; gap: 12px; }
+.mc-card-title { font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mc-cell { padding: 12px; border-radius: 12px; background: var(--mc-weak); min-width: 0; }
+.mc-cell.brand { background: var(--mc-brand-weak); }
+.mc-cell .num { font-size: 18px; font-weight: 700; line-height: 1.3; }
+.mc-cell .num.brand { color: var(--mc-brand); }
+.mc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mc-chips button { padding: 4px 10px; border-radius: 999px; background: var(--mc-weak); font-size: 12px; }
+.mc-chips b { color: var(--mc-non); }
+.mc-icon-btn { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--mc-muted); font-size: 20px; line-height: 1; }
+.mc-icon-btn:hover { background: var(--mc-weak); }
+
+/* 점, 순위, 배지 */
+.mc-dot { display: inline-block; width: 10px; height: 10px; flex-shrink: 0; border-radius: 50%; }
+.mc-dot.sq { width: 12px; height: 12px; border-radius: 3px; }
+.mc-dot.big { width: 16px; height: 16px; margin-top: 4px; }
+.mc-rank { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: var(--mc-non); color: #fff; font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 700; }
+.mc-rank.big { width: 36px; height: 36px; font-size: 14px; }
+.mc-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.mc-badge.brand { background: var(--mc-brand-weak); color: var(--mc-brand); }
+.mc-badge.positive { background: var(--mc-positive-weak); color: var(--mc-positive); }
+.mc-badge.neutral { background: var(--mc-weak); color: var(--mc-muted); }
+
+/* 요약 숫자 */
+.mc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mc-stat { padding: 12px; border-radius: 16px; background: var(--mc-weak); }
+.mc-stat .v { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 24px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.mc-stat .l { margin-top: 6px; font-size: 11.5px; line-height: 1.3; color: var(--mc-muted); }
+.mc-stat.brand { background: var(--mc-brand-weak); }
+.mc-stat.brand .v { color: var(--mc-brand); }
+
+/* 탭: 탭 영역만 스크롤하고 탭 머리는 위에 붙여 둔다 */
+.mc-tabs { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
+.mc-tablist { position: sticky; top: 0; z-index: 1; display: flex; background: var(--mc-surface); border-bottom: 1px solid var(--mc-line); }
+.mc-tablist button { flex: 1; padding: 12px 0 10px; text-align: center; font-weight: 600; color: var(--mc-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.mc-tablist button.on { color: var(--mc-ink); font-weight: 700; border-bottom-color: var(--mc-ink); }
+.mc-panel { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; }
+.mc-note { padding: 0 4px 4px; font-size: 12px; color: var(--mc-muted); }
+.mc-empty { padding: 24px; text-align: center; color: var(--mc-muted); }
+.mc-h3 { margin: 12px 4px 4px; font-size: 12px; font-weight: 700; color: var(--mc-muted); }
+.mc-h3:first-child { margin-top: 0; }
+.mc-crumb { display: flex; align-items: center; gap: 4px; padding: 0 4px 6px; font-size: 14px; }
+.mc-crumb .muted { color: var(--mc-muted); }
+.mc-crumb .strong { font-weight: 700; }
+.mc-chev { color: var(--mc-muted); font-size: 18px; }
+
+/* 목록 */
+.mc-list { list-style: none; margin: 0; padding: 0; }
+.mc-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 12px; }
+.mc-item:hover { background: var(--mc-weak); }
+.mc-item.on { background: var(--mc-brand-weak); }
+.mc-item .pre { display: flex; flex-shrink: 0; }
+.mc-item .body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.mc-item .title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-item .detail { font-size: 13px; color: var(--mc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-item .suf { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.mc-btn { align-self: flex-start; margin: 4px; padding: 6px 12px; border-radius: 8px; background: var(--mc-weak); font-size: 13px; font-weight: 600; }
+
+/* 검색 */
+.mc-search { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; padding: 0 12px; height: 40px; border: 1px solid var(--mc-line); border-radius: 10px; color: var(--mc-muted); }
+.mc-search:focus-within { border-color: var(--mc-brand); }
+.mc-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--mc-ink); font: inherit; }
+
+/* 정보 탭 */
+.mc-info { gap: 16px; }
+.mc-bar { display: grid; grid-template-columns: 44px 1fr 28px; align-items: center; gap: 8px; width: 100%; padding: 3px 4px; }
+.mc-bar .lab, .mc-bar .val { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--mc-muted); }
+.mc-bar.on .lab, .mc-bar.on .val { color: var(--mc-ink); }
+.mc-bar .track { height: 16px; }
+.mc-bar .fill { display: block; height: 100%; min-width: 2px; border-radius: 4px; background: var(--mc-brand); opacity: .35; }
+.mc-bar.on .fill { opacity: 1; }
+.mc-legend { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.mc-legend div { display: flex; align-items: center; gap: 8px; }
+.mc-small p { padding: 0 4px; font-size: 12px; line-height: 1.7; color: var(--mc-muted); }
+
+/* 휴대폰: 아래에서 올라오는 목록 서랍 */
+.mc-drawer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; flex-direction: column; gap: 12px; height: 150px; padding: 0 16px 16px; border-top: 1px solid var(--mc-line); border-radius: 24px 24px 0 0; background: var(--mc-surface); box-shadow: 0 -6px 24px rgb(0 0 0 / .1); transition: height .3s; }
+.mc-drawer.open { height: 72dvh; }
+.mc-handle { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; text-align: center; }
+.mc-handle .bar { width: 40px; height: 4px; border-radius: 999px; background: #d1d6db; }
+
+/* 지도 위 설명 상자(카카오 오버레이 안) */
+.mc-tip { background: #fff; color: #1a1c20; border: 1px solid #e5e5e5; border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.5; box-shadow: 0 6px 20px rgb(0 0 0 / .12); white-space: nowrap; }
+
+/* 넓은 화면(1024px 이상): 사이드바를 쓰고 서랍·접힌 조건을 숨긴다 */
+@media (min-width: 1024px) {
+  .mc-side { display: flex; }
+  .mc-drawer, .mc-ctrl-mini { display: none; }
+  .mc-ctrl { display: flex; }
+  .mc-ctrl-head { display: none; }
+  .mc-hint, .mc-card { bottom: 12px; }
+}
+@media (max-width: 639px) { .mc .hide-sm { display: none; } }
