@@ -31,9 +31,9 @@ const SORT_OPTIONS: { value: SortMode; label: string }[] = [
   { value: 'rating', label: '별점 높은 순' },
   { value: 'price', label: '가격이 좋다는 평가 많은 순' },
   { value: 'taste', label: '음식이 맛있다는 평가 많은 순' },
+  { value: 'portion', label: '양이 넉넉하다는 평가 많은 순' },
   { value: 'kindness', label: '친절하다는 평가 많은 순' },
   { value: 'atmosphere', label: '분위기가 좋다는 평가 많은 순' },
-  { value: 'portion', label: '양이 넉넉하다는 평가 많은 순' },
   { value: 'distance', label: '내 위치와 가까운 순' },
 ]
 
@@ -54,9 +54,17 @@ function compareByMode(
       const db = userLocation && b.coordinates ? straightDistanceMeters(userLocation, b.coordinates) : Infinity
       return da - db
     }
-    const pa = (a.merchantId ? tagCountsAll[a.merchantId]?.[mode].positive : null) ?? 0
-    const pb = (b.merchantId ? tagCountsAll[b.merchantId]?.[mode].positive : null) ?? 0
-    return pb - pa
+    // 순긍정(긍정 개수 - 부정 개수) 기준. 긍정 개수만 보면 부정도 같이 많이 받은
+    // 가게가 실제로는 평가가 더 안 좋은데도 위로 올라가는 문제가 있어서 순점수로 비교.
+    // 단, 순긍정이 마이너스라도 "리뷰가 아예 없는 가게"보다는 위에 와야 하므로
+    // 리뷰 존재 여부(reviewSummaries)로 먼저 구분하고, 리뷰가 없으면 -Infinity로 제일 아래로.
+    const hasReviewsA = a.merchantId ? (reviewSummaries[a.merchantId]?.reviewCount ?? 0) > 0 : false
+    const hasReviewsB = b.merchantId ? (reviewSummaries[b.merchantId]?.reviewCount ?? 0) > 0 : false
+    const countA = a.merchantId ? tagCountsAll[a.merchantId]?.[mode] : null
+    const countB = b.merchantId ? tagCountsAll[b.merchantId]?.[mode] : null
+    const netA = hasReviewsA ? (countA ? countA.positive - countA.negative : 0) : -Infinity
+    const netB = hasReviewsB ? (countB ? countB.positive - countB.negative : 0) : -Infinity
+    return netB - netA
   }
 }
 
