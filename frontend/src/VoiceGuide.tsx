@@ -10,6 +10,7 @@ import { estimateArrival, estimateRouteEnd, arrivalCommand, merchantCallUrl, hel
 import type { ArrivalReading } from './arrivalAssist'
 import { guideSelection, normalizeVoiceCommand } from './voiceActivation'
 import { spokenConsent } from './spokenConsent'
+import { recommendationSpeech } from './recommendationSpeech'
 import type { Merchant } from './merchants'
 import VoiceSearch from './VoiceSearch'
 import { parseVoiceIntent } from './voiceIntent'
@@ -231,7 +232,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       setAiNotice('')
       routeOffer.current = option.store.coordinates ? option : null
       if (routeOffer.current) handsFree.requestCommand()
-      return say(routeOffer.current ? `${answer.reply} ${option.store.name}까지 길 안내할까요?` : answer.reply)
+      return say(routeOffer.current ? recommendationSpeech(answer.reply, option.store.name) : answer.reply)
     } catch (error) {
       if (request.signal.aborted) return
       setAiNotice('대화 AI 응답 재시도가 필요해요.')
