@@ -24,7 +24,8 @@ npm run dev -- --port 5173 --strictPort
 
 카카오 앱의 JavaScript SDK 허용 도메인에 `http://localhost:5173`을 등록합니다. 포트가 다르면 지도가 뜨지 않으므로 `--strictPort`로 5173을 고정합니다.
 
-- 가맹점 찾기: `http://localhost:5173/`
+- 첫 화면(잇다 홈): `http://localhost:5173/` — 가맹점 지도와 가맹 권유 지도로 가는 카드 두 장, 구글 로그인
+- 가맹점 지도: `http://localhost:5173/finder.html`
 - 가맹 권유 지도: `http://localhost:5173/mealcard.html`
 - 관리자 검수: `http://localhost:5173/admin.html`
 - 음성 인식·도보 거리 조회·메뉴판 제보·관리자 검수에는 백엔드도 실행해야 합니다.
@@ -34,6 +35,16 @@ npm run dev -- --port 5173 --strictPort
 - **사진 올리기**: 지도에서 가게를 고르면 팝업에 "메뉴판 사진 올리기" 버튼이 나옵니다. 메뉴판이 여러 장이면 **한 번에 최대 5장**까지 골라 올릴 수 있고(장마다 번호 표시, × 로 빼기), 결과에는 메뉴마다 몇 번째 사진에서 읽었는지 표시됩니다(`MenuUploadModal.tsx`). 사진 검사와 서버 전송은 `menuSubmission.ts`가 맡고, 결과는 관리자 검수를 거친 뒤 지도에 반영됩니다.
 - **만원 이하 식사 필터**: 목록 위 "만원 이하 식사" 체크박스를 켜면 관리자가 승인한 메뉴판에서 만원 이하 식사가 확인된(`Y`) 가게만 지도와 목록에 남습니다. `N`이거나 아직 승인된 메뉴가 없는 가게는 빠집니다. `Y`인 가게는 카드에 초록색 "만원 이하 · 7,000원~" 표시가, 팝업에 "만원 이하 식사 있음"이 붙습니다. "필터 초기화"를 누르면 함께 해제됩니다.
   판정 값(`in_under_10000`, `min_meal_price_won`)은 백엔드 `GET /api/merchants`가 내려주며(`merchantApi.ts`), 필터 계산은 `merchants.ts`의 `filterMerchants`입니다.
+
+## 가맹점 지도: 목록 접기/펼치기
+
+데스크톱에서는 지도가 화면 전체에 깔리고 왼쪽 목록이 그 위에 떠 있습니다. 목록 오른쪽 가장자리의 **‹ 손잡이**를 누르면 목록이 왼쪽으로 접히고(손잡이는 `›`로 바뀝니다), 다시 누르면 펼쳐집니다.
+
+- 지도 크기는 바뀌지 않으므로 마커가 다시 그려지지 않습니다. (`prefers-reduced-motion` 설정이면 애니메이션 없이 바로 바뀝니다.)
+- 마지막 상태는 브라우저에 기억합니다. (`src/finderSidebar.ts`, 저장소를 못 쓰는 환경에서는 항상 펼친 상태)
+- 접힌 채로 **검색**하거나 지도에서 **마커 묶음**을 누르면 결과가 목록에 나오므로 자동으로 펼칩니다. 이때 저장된 선택(접힘)은 바꾸지 않습니다.
+- 접힌 목록은 키보드 탭 순서에서도 빠지고, 손잡이는 열림 상태(`aria-expanded`)와 "가맹점 목록 접기/펼치기" 이름을 알립니다.
+- 모바일(폭 760px 이하)은 목록과 지도를 번갈아 보여 주는 별도 방식이라 손잡이가 없습니다.
 
 ## 검색 (가게 이름·메뉴·주소)
 
@@ -72,10 +83,12 @@ npm run preview
 
 | 파일 | 역할 |
 | --- | --- |
-| `src/App.tsx` | 검색·필터·목록·상세 화면 |
+| `index.html`, `src/home/` | 첫 화면(잇다 홈): 헤더, 로그인, 지도·가맹 권유 지도 카드. 카드 목록은 `src/home/links.ts` |
+| `finder.html`, `src/App.tsx` | 가맹점 지도 화면(검색·필터·목록·상세) |
 | `src/KakaoMap.tsx` | 지도·업종별 마커·군집 |
 | `src/kakao.ts` | 카카오 SDK 로딩·타입 정의 |
 | `src/merchants.ts`, `src/merchantData.ts` | 가맹점 모델·검색 |
+| `src/finderSidebar.ts` | 가맹점 지도의 목록 접힘 상태 저장·복원 |
 | `src/merchantApi.ts` | 백엔드 `/api/merchants`(메인 테이블 `merchant_crawl_staging`) 응답을 화면 모델로 변환. 영업시간은 평일·토요일·공휴일 |
 | `src/VoiceSearch.tsx`, `src/voiceIntent.ts` | 녹음·음성 검색어 처리 |
 | `src/NearestVoice.tsx` | 현재 위치 기반 도보 거리·음성 안내 |
