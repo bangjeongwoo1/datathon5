@@ -23,6 +23,7 @@ import type { ReviewTagCode } from './reviewTags'
 import { straightDistanceMeters } from './merchantDistance'
 import { requestCurrentLocation } from './userLocation'
 import { matchedMenuNames, menuMatchLabel } from './menuSearch'
+import { loadSidebarOpen, saveSidebarOpen } from './finderSidebar'
 function Icon({name,size=20}:{name:string;size?:number}) {
  const paths:Record<string,ReactNode>={mic:<><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></>,map:<><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Z"/><path d="M9 3v16m6-14v16"/></>,list:<><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></>,search:<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></>,pin:<><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,arrow:<><path d="m4 10 16-6-6 16-3-7-7-3Z"/><path d="m11 13 9-9"/></>,phone:<path d="m7 3 3 5-3 3c2 3 3 4 6 6l3-3 5 3c0 5-4 5-7 3C7 17 3 12 3 7c0-3 2-4 4-4Z"/>,clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,reset:<><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></>,target:<><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></>,info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></>,leaf:<><path d="M20 3C8 1 2 7 5 15c8 5 16-1 15-12Z"/><path d="M3 21 15 9"/></>,chevron:<path d="m7 10 5 5 5-5"/>,user:<><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 5-5.5 7-5.5S17.5 16 19 20"/></>}
  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]||paths.pin}</svg>
@@ -80,6 +81,9 @@ function App(){
 
   const [region, setRegion] = useState<Region>('춘천시')
   const [mobileView, setMobileView] = useState<'map' | 'list'>('list')
+ // 데스크톱에서 왼쪽 목록을 접었는지(마지막 상태를 기억한다). 모바일은 mobileView 로 따로 전환한다.
+ const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen)
+ const toggleSidebar = () => { const next = !sidebarOpen; setSidebarOpen(next); saveSidebarOpen(next) }
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({ enabled: false, message: '마이크 연결 중', heard: '', answer: '', error: '' })
   const [routeRequest, setRouteRequest] = useState(0)
@@ -186,6 +190,7 @@ const selectStore = useCallback((id: number) => {
 
 const selectRegion = useCallback((ids: number[]) => {
   setClusterIds(ids)
+  setSidebarOpen(true) // 고른 묶음이 목록에 나오므로 접혀 있으면 펼친다(저장된 선택은 바꾸지 않는다)
   setSelectedId(null)
   setMobileView('list')
 }, [setClusterIds, setSelectedId])
@@ -263,6 +268,7 @@ const handleSortChange = async (mode: SortMode) => {
        <strong>잇다</strong>
      </a>
      <nav className="desktop-links" aria-label="주요 메뉴">
+       <a href="/">홈</a>
        <a className="nav-active" href="#finder" onClick={() => setMobileView('map')}>지도</a>
        <a href="#finder" onClick={() => setMobileView('list')}>가맹점 목록</a>
        <a href="/mealcard.html">가맹 권유 지도 <span aria-hidden="true">↗</span></a>
@@ -283,11 +289,11 @@ const handleSortChange = async (mode: SortMode) => {
        </div> : <button className="account-button" onClick={signInWithGoogle} disabled={signingIn} aria-label="Google로 로그인" title="Google로 로그인"><Icon name="user" size={20}/></button>}
      </div>
    </header>
-   <main id="finder" className="split" data-view={mobileView}>
-     <aside className="sidebar" aria-label="가맹점 검색 및 목록">
+   <main id="finder" className="split" data-view={mobileView} data-sidebar={sidebarOpen ? 'open' : 'closed'}>
+     <aside id="finder-sidebar" className="sidebar" aria-label="가맹점 검색 및 목록">
        <section className="search-section">
          <h1 className="finder-sr-only">{region} 아동급식카드 가맹점 찾기</h1>
-         <form onSubmit={e => { e.preventDefault(); setSearch(query); setSelectedId(null); setClusterIds(null); setMobileView('list') }}>
+         <form onSubmit={e => { e.preventDefault(); setSearch(query); setSelectedId(null); setClusterIds(null); setMobileView('list'); setSidebarOpen(true) }}>
            <div className="search-input"><span className="figma-search-icon"><img src="/figma/search.svg" alt=""/></span><input aria-label="가맹점 이름, 메뉴 또는 주소" placeholder="가게 이름, 메뉴, 주소로 검색해 보세요" value={query} onChange={e => setQuery(e.target.value)}/><button className="search-submit" type="submit" aria-label="검색"><Icon name="arrow" size={20}/></button></div>
          </form>
          <div className="finder-categories" role="group" aria-label="가맹점 종류">{categories.map(c => <button key={c} className={category === c && !cuisine ? 'active' : ''} aria-pressed={category === c && !cuisine} onClick={() => { setCategory(c); setCuisine(null); setQuery(''); setSearch(''); setSelectedId(null); setClusterIds(null) }}>{categoryNames[c]}</button>)}</div>
@@ -315,6 +321,7 @@ const handleSortChange = async (mode: SortMode) => {
        </div>
        <p className="sidebar-bottom"><Icon name="info" size={13}/>방문 전 카드 사용 여부와 메뉴 가격을 확인해 주세요.</p>
      </aside>
+     <button type="button" className="sidebar-toggle" onClick={toggleSidebar} aria-expanded={sidebarOpen} aria-controls="finder-sidebar" aria-label={sidebarOpen ? '가맹점 목록 접기' : '가맹점 목록 펼치기'} title={sidebarOpen ? '목록 접기' : '목록 펼치기'}><span aria-hidden="true">{sidebarOpen ? '‹' : '›'}</span></button>
      <section className="map" aria-label={`${region} 카카오 가맹점 지도`}>
        <KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} onLocationChange={receiveLocation} userLocation={userLocation}/>
        <button className="map-list-button" onClick={() => setMobileView(mobileView === 'list' ? 'map' : 'list')}><Icon name="list" size={17}/>{mobileView === 'list' ? '목록 닫기' : '목록 보기'} <b>{merchantLoadState === 'ready' ? sortedVisible.length.toLocaleString() : '…'}</b></button>

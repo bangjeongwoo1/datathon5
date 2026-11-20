@@ -318,7 +318,7 @@ export default function MealcardApp() {
           <h1>춘천 급식카드 가맹 권유 지도</h1>
           <p>학교 1km 안, 기존 가맹점이 닿지 않는 미가맹 식당</p>
         </div>
-        <a className="mc-back" href={import.meta.env.BASE_URL}>← 가맹점 찾기</a>
+        <a className="mc-back" href={`${import.meta.env.BASE_URL}finder.html`}>← 가맹점 찾기</a>
       </header>
 
       <main className="mc-main">
