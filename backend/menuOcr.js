@@ -1,7 +1,7 @@
 // 메뉴판 사진 → 메뉴명·가격 JSON. Gemini REST API를 서버에서만 호출한다.
 import { validateMenuItems } from './menuPrice.js';
 
-const DEFAULT_MODEL = 'gemini-3.8-flash';
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MAX_RETRIES = 2; // 같은 모델에 대한 재시도 횟수(최초 호출 제외)
 

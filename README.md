@@ -1,30 +1,3 @@
-<<<<<<< HEAD
-# 4개 지역 가맹점 주점/비주점 분류
-
-강릉시 / 원주시 / 춘천시 / 홍천군 가맹점 CSV를 하나로 합친 뒤, 네이버 지도에서
-업종과 요일별(평일/토/일/배달) 영업시간을 수집해 `주점.csv` / `비주점.csv` /
-`검수필요.csv` 세 파일로 분류합니다.
-
-## 실행
-
-```
-python build_merchant_master.py
-```
-
-`build_merchant_master.py` 안의 `TEST_SAMPLE_PER_FILE` 값으로 지역별 샘플 개수를
-조절할 수 있습니다 (0이면 전체 실행).
-
-## 파일 구성
-
-- `build_merchant_master.py` — 메인 스크립트
-- `make_hours_csv.py` / `naver_category.py` — `build_merchant_master.py`가 가져다 쓰는
-  크롤링 드라이버 생성, 업종 기반 주점 판별 함수가 들어있는 의존 모듈
-- `강릉시.csv` / `원주시.csv` / `춘천시.csv` / `홍천군.csv` — 입력 데이터 (중복·업종기타 처리 완료본)
-
-## 필요 패키지
-
-`selenium`, `webdriver-manager` (Microsoft Edge 드라이버 자동 설치)
-=======
 # 잇다 (EATDA)
 
 아동급식카드 이용자를 위한 지역별 가맹점 검색 및 도보 경로 안내 서비스입니다.
@@ -194,9 +167,10 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 | 이름 | 설명 |
 |---|---|
 | `GEMINI_API_KEY` | 필수. Google AI Studio에서 발급 |
-| `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.8-flash` |
+| `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.5-flash-lite` |
 | `GEMINI_FALLBACK_MODEL` | 선택. 혼잡·타임아웃·한도 초과 시 대신 쓸 모델 |
 | `GEMINI_TIMEOUT_MS` | 선택. 호출 1회 제한 시간. 기본 30000 |
+| `MENU_PHOTO_DIR` | 선택. 제보 사진 보관 폴더. 기본 `backend/uploads/menu-photos` |
 
 모델 이름은 자주 바뀌므로 `https://generativelanguage.googleapis.com/v1beta/models`에서 현재 사용 가능한 이름을 확인하세요.
 
@@ -210,6 +184,23 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 
 적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
 
+### POST /api/merchants/:merchantId/menu-submissions
+
+가게를 지정해 메뉴판 사진을 **제보**합니다. 위의 OCR 결과를 `menu_submissions`에 **검수 대기(`pending`)로 저장**하고, 원본 사진을 비공개 폴더에 보관합니다. 관리자가 승인하기 전에는 지도에 반영되지 않습니다.
+
+```powershell
+curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu-submissions
+```
+
+- 요청: `:merchantId`는 `merchants.merchant_id`, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
+- 성공(201): `submission_id`, `status: "pending"`, `has_uncertain`, `items`, `rejected`, `model`
+- 실패: 사진 없음·형식 오류·잘못된 가맹점 번호 `400`, 없는 가맹점 `404`, 메뉴를 읽지 못함 `422`(저장하지 않음), 호출 제한 초과 `429`
+- 없는 가맹점은 AI를 호출하기 **전에** 거절하므로 비용이 들지 않습니다.
+- 사진은 `backend/uploads/menu-photos/`에 서버가 정한 이름으로 저장됩니다(Git에 올라가지 않음). 관리자가 승인·반려한 뒤 삭제할 예정이며, 폴더는 `MENU_PHOTO_DIR`로 바꿀 수 있습니다.
+- DB 저장이 실패하면 방금 저장한 사진도 함께 지웁니다.
+- 로그인 기능이 붙기 전에는 제출자(`submitted_by`)가 비어 있습니다.
+- **배포 주의**: Render 같은 서버는 재시작 때 파일이 사라지므로, 배포 전에 사진 저장소를 Supabase Storage 등으로 바꿔야 합니다. (`backend/menuSubmissions.js`의 `savePhoto`, `deletePhoto`만 바꾸면 됩니다.)
+
 #### 앞으로 연결할 흐름
 
 ```text
@@ -218,7 +209,7 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
    → 가게 상세에 메뉴 표시 + "만원 이하 식사 메뉴" 필터
 ```
 
-남은 작업: 제보 저장 API, 사진 올리기 화면, 관리자 승인 화면(로그인 필요), 메뉴 표시와 필터, Supabase 테이블 적용.
+남은 작업: 사진 올리기 화면, 관리자 승인 화면(로그인 필요), 메뉴 표시와 필터, 사진 저장소 교체(배포용), Supabase 테이블 적용.
 
 백엔드 테스트: `cd backend; npm.cmd test`
 
@@ -241,4 +232,30 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 주요 변경 사항은 **4개 지역 확장, PostgreSQL 데이터베이스 구축, Express 가맹점 API 개발 및 기존 지도·음성 기능 연동**입니다.
 
 추가 기능 개발 후 Pull Request를 통해 팀 프로젝트의 `main` 브랜치에 병합할 수 있습니다.
->>>>>>> e7bd0f476e23b02b63658ba7337e5174dd1b0d82
+
+## 7. 4개 지역 가맹점 주점/비주점 분류 (데이터 처리 스크립트)
+
+강릉시 / 원주시 / 춘천시 / 홍천군 가맹점 CSV를 하나로 합친 뒤, 네이버 지도에서
+업종과 요일별(평일/토/일/배달) 영업시간을 수집해 `주점.csv` / `비주점.csv` /
+`검수필요.csv` 세 파일로 분류합니다.
+
+### 실행
+
+```
+python build_merchant_master.py
+```
+
+수집 결과는 업체 1건마다 `가맹점_수집_진행.csv`에 저장되며, 중단했다가 다시 실행하면
+이미 처리한 `merchant_id`는 건너뛰고 이어서 진행합니다. `merchant_id`는 4개 지역 CSV를
+합친 순서대로 한 번만 배정하므로, 수집 도중에는 4개 지역 CSV를 수정하지 마세요.
+
+### 파일 구성
+
+- `build_merchant_master.py` — 메인 스크립트
+- `make_hours_csv.py` / `naver_category.py` — `build_merchant_master.py`가 가져다 쓰는
+  크롤링 드라이버 생성, 업종 기반 주점 판별 함수가 들어있는 의존 모듈
+- `강릉시.csv` / `원주시.csv` / `춘천시.csv` / `홍천군.csv` — 입력 데이터 (중복·업종기타 처리 완료본)
+
+### 필요 패키지
+
+`selenium`, `webdriver-manager` (Microsoft Edge 드라이버 자동 설치)
