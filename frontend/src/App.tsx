@@ -417,7 +417,37 @@ onClick={() => {
     <Icon name="phone" size={16}/>
     {selected.phone}
   </p>
-)}</div><div className="popup-meal"><span>든든한 한 끼 추천</span><strong>{selected.menu?.join(' · ') ?? ''}</strong></div><div className="popup-actions"><button onClick={()=>route(selected)}><Icon name="arrow" size={17}/>길찾기 ↗</button><button onClick={() => phone(selected)}>
+)}
+
+{selected.naverCuisine && (
+  <p>
+    <Icon name="info" size={16}/>
+    세부 업종: {selected.naverCuisine}
+  </p>
+)}
+
+{selected.businessHours?.weekday && (
+  <p>
+    <Icon name="clock" size={16}/>
+    평일: {selected.businessHours.weekday}
+  </p>
+)}
+
+{selected.businessHours?.saturday && (
+  <p>
+    <Icon name="clock" size={16}/>
+    토요일: {selected.businessHours.saturday}
+  </p>
+)}
+
+{selected.businessHours?.sunday && (
+  <p>
+    <Icon name="clock" size={16}/>
+    일요일: {selected.businessHours.sunday}
+  </p>
+)}
+
+</div><div className="popup-meal"><span>든든한 한 끼 추천</span><strong>{selected.menu?.join(' · ') ?? ''}</strong></div><div className="popup-actions"><button onClick={()=>route(selected)}><Icon name="arrow" size={17}/>길찾기 ↗</button><button onClick={() => phone(selected)}>
   <Icon name="phone" size={16}/>전화 안내
 </button></div><ReviewPanel key={selected.merchantId??selected.id} merchantId={selected.merchantId} merchantName={selected.name}/><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
  <div className="map-legend"><strong>가맹점 유형</strong><span><i className="blue"/>일반음식점</span><span><i className="green"/>편의점</span><span><i className="orange"/>베이커리/간식</span><span><i className="purple"/>마트</span></div></section></main>
