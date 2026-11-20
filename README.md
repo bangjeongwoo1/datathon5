@@ -167,9 +167,10 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 | 이름 | 설명 |
 |---|---|
 | `GEMINI_API_KEY` | 필수. Google AI Studio에서 발급 |
-| `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.8-flash` |
+| `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.5-flash-lite` |
 | `GEMINI_FALLBACK_MODEL` | 선택. 혼잡·타임아웃·한도 초과 시 대신 쓸 모델 |
 | `GEMINI_TIMEOUT_MS` | 선택. 호출 1회 제한 시간. 기본 30000 |
+| `MENU_PHOTO_DIR` | 선택. 제보 사진 보관 폴더. 기본 `backend/uploads/menu-photos` |
 
 모델 이름은 자주 바뀌므로 `https://generativelanguage.googleapis.com/v1beta/models`에서 현재 사용 가능한 이름을 확인하세요.
 
@@ -183,6 +184,23 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 
 적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
 
+### POST /api/merchants/:merchantId/menu-submissions
+
+가게를 지정해 메뉴판 사진을 **제보**합니다. 위의 OCR 결과를 `menu_submissions`에 **검수 대기(`pending`)로 저장**하고, 원본 사진을 비공개 폴더에 보관합니다. 관리자가 승인하기 전에는 지도에 반영되지 않습니다.
+
+```powershell
+curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu-submissions
+```
+
+- 요청: `:merchantId`는 `merchants.merchant_id`, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
+- 성공(201): `submission_id`, `status: "pending"`, `has_uncertain`, `items`, `rejected`, `model`
+- 실패: 사진 없음·형식 오류·잘못된 가맹점 번호 `400`, 없는 가맹점 `404`, 메뉴를 읽지 못함 `422`(저장하지 않음), 호출 제한 초과 `429`
+- 없는 가맹점은 AI를 호출하기 **전에** 거절하므로 비용이 들지 않습니다.
+- 사진은 `backend/uploads/menu-photos/`에 서버가 정한 이름으로 저장됩니다(Git에 올라가지 않음). 관리자가 승인·반려한 뒤 삭제할 예정이며, 폴더는 `MENU_PHOTO_DIR`로 바꿀 수 있습니다.
+- DB 저장이 실패하면 방금 저장한 사진도 함께 지웁니다.
+- 로그인 기능이 붙기 전에는 제출자(`submitted_by`)가 비어 있습니다.
+- **배포 주의**: Render 같은 서버는 재시작 때 파일이 사라지므로, 배포 전에 사진 저장소를 Supabase Storage 등으로 바꿔야 합니다. (`backend/menuSubmissions.js`의 `savePhoto`, `deletePhoto`만 바꾸면 됩니다.)
+
 #### 앞으로 연결할 흐름
 
 ```text
@@ -191,7 +209,7 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
    → 가게 상세에 메뉴 표시 + "만원 이하 식사 메뉴" 필터
 ```
 
-남은 작업: 제보 저장 API, 사진 올리기 화면, 관리자 승인 화면(로그인 필요), 메뉴 표시와 필터, Supabase 테이블 적용.
+남은 작업: 사진 올리기 화면, 관리자 승인 화면(로그인 필요), 메뉴 표시와 필터, 사진 저장소 교체(배포용), Supabase 테이블 적용.
 
 백엔드 테스트: `cd backend; npm.cmd test`
 
