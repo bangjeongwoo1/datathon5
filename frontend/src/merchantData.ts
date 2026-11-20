@@ -9,6 +9,9 @@ export type SourceMerchant = {
 
 export type MerchantRecord = {
   id: number
+  // DB의 merchant_id. 화면용 임시 번호(id)와 달리 지역을 다시 불러와도 바뀌지 않아,
+  // 메뉴판 사진 제보처럼 "어느 가게인지"를 서버에 알릴 때 쓴다. 정적 데이터에는 없다.
+  merchantId?: string
   name: string
   address: string
   category: string

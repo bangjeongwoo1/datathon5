@@ -5,6 +5,7 @@ import { scopeMerchants } from './mapClusters'
 import KakaoMap from './KakaoMap'
 import type { ReactNode } from 'react'
 import VoiceSearch from './VoiceSearch'
+import MenuUploadModal from './MenuUploadModal'
 import { filterMerchants } from './merchants'
 import { loadRegionMerchants } from './merchantApi'
 import type { Merchant } from './merchants'
@@ -59,6 +60,7 @@ function App(){
 
  const [selectionRequest,setSelectionRequest]=useState(0)
  const [selectedId, setSelectedId] = useState<number | null>(null)
+ const [uploadStore, setUploadStore] = useState<Merchant | null>(null)
 const [regionOpen, setRegionOpen] = useState(false)
 const [centerRequest] = useState(0)
  const [notice,setNotice]=useState(''),[policy,setPolicy]=useState<string|null>(null)
@@ -334,10 +336,11 @@ onClick={() => {
   </p>
 )}</div><div className="popup-meal"><span>든든한 한 끼 추천</span><strong>{selected.menu?.join(' · ') ?? ''}</strong></div><div className="popup-actions"><button onClick={()=>route(selected)}><Icon name="arrow" size={17}/>길찾기 ↗</button><button onClick={() => phone(selected)}>
   <Icon name="phone" size={16}/>전화 안내
-</button></div><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
+</button>{selected.merchantId&&<button className="popup-upload" onClick={()=>setUploadStore(selected)}>메뉴판 사진 올리기</button>}</div><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
  <div className="map-legend"><strong>가맹점 유형</strong><span><i className="blue"/>일반음식점</span><span><i className="green"/>편의점</span><span><i className="orange"/>베이커리/간식</span><span><i className="purple"/>마트</span></div></section></main>
  <footer className="footer"><div className="footer-brand"><img className="footer-logo" src="/eatda-logo.png" alt="잇다 로고"/><div><strong>아동급식카드 종합지원센터</strong><p>아이들의 건강한 오늘, 함께 만드는 따뜻한 내일</p></div></div><div className="footer-data">지자체 아동복지과 공공데이터 연계 안내<span>공공데이터 기반 정보이며, 최신 가맹 여부와 영업 상태는 방문 전 확인해 주세요.</span></div><div className="footer-support"><span>고객지원 문의 <strong>1544-3674</strong></span><div><button onClick={e=>{policyTrigger.current=e.currentTarget;setPolicy('이용약관')}}>이용약관</button><i/><button onClick={e=>{policyTrigger.current=e.currentTarget;setPolicy('개인정보처리방침')}}>개인정보처리방침</button></div></div></footer>
  {(notice||authError)&&<div className="toast" role="status"><Icon name="info" size={18}/>{notice||authError}<button aria-label="알림 닫기" onClick={()=>{setNotice('');clearAuthError()}}>×</button></div>}
+ {uploadStore?.merchantId&&<MenuUploadModal merchantId={uploadStore.merchantId} merchantName={uploadStore.name} onClose={()=>setUploadStore(null)}/>}
  {policy&&<div className="modal-backdrop" onClick={closePolicy}><section className="policy-modal" role="dialog" aria-modal="true" aria-label={policy} onKeyDown={e=>{if(e.key==='Escape')closePolicy();if(e.key==='Tab')e.preventDefault()}} onClick={e=>e.stopPropagation()}><h2>{policy} · 시안 안내</h2><p>이 화면은 비공식 디자인 프로토타입입니다. 개인정보를 수집하거나 저장하지 않으며 검색과 필터는 브라우저 안에서 처리합니다. 길찾기는 외부 카카오맵 검색으로 연결됩니다.</p><p>실제 약관 및 개인정보처리방침은 운영기관의 공식 안내를 확인해 주세요.</p><button autoFocus onClick={closePolicy}>확인</button></section></div>}
  </div>
 }

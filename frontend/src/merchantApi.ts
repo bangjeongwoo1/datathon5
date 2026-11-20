@@ -1,9 +1,10 @@
 
-import { apiUrl } from './apiUrl'
+import { apiUrl } from './apiUrl.ts'
 import type { Merchant } from './merchants'
 
 type DbMerchant = {
-  merchant_id: string
+  // 숫자·문자열 어느 쪽으로 오든 문자열로 통일해서 쓴다.
+  merchant_id: string | number
   region: string
   name: string
   address: string | null
@@ -93,6 +94,7 @@ export async function loadRegionMerchants(
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
       // 화면 내 임시 ID를 부여
       id: index + 1,
+      merchantId: String(row.merchant_id),
       name: row.name,
       address: row.address ?? '',
       category: toUiCategory(row.category),

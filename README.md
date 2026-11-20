@@ -143,7 +143,9 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
    - 변환 예: `3000원`, `4,000원`, `1293won`, `1만원`, `만원`, `1만 2천원`, `삼천원`
    - 서버가 계산한 값과 모델이 준 값이 다르면 `uncertain`
    - 500원 미만, 10만 원 초과는 `rejected`
-   - 단위가 없는 100 미만 숫자(예: `10.0`)는 서버가 해석하지 못하므로 모델 값만으로 `uncertain` 처리
+   - 천 원 단위를 소수로 적은 표기(`3.0`, `15.9`, `15.900`, `40,0`)는 `× 1000`으로 계산합니다. 단위가 없는 소수는 원래 모호하므로 **모델이 같은 값을 냈을 때만 `ok`**이고, 모델 값이 없거나 다르면(범위 밖 포함) 사진 속 표기에서 계산한 값을 쓰되 `uncertain`으로 표시합니다.
+   - 쉼표 뒤에 1~2자리만 오는 `40,0`은 천 단위 구분이 아니라 소수점으로 읽습니다. (`40,000`은 그대로 40,000원)
+   - 그 밖에 단위 없는 100 미만 숫자(예: `9`)는 서버가 해석하지 못하므로 모델 값만으로 `uncertain` 처리
 6. **반환**: 검증을 통과한 `items`와 걸러진 `rejected`를 돌려줍니다.
 
 #### 응답 예시
@@ -153,7 +155,8 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
   "model": "gemini-3.5-flash-lite",
   "items": [
     { "name": "김치찌개", "price_won": 3000, "price_text": "3000원", "category": "meal", "status": "ok" },
-    { "name": "돈까스", "price_won": 10000, "price_text": "10.0", "category": "meal", "status": "uncertain" }
+    { "name": "육회", "price_won": 13900, "price_text": "13.9", "category": "meal", "status": "ok" },
+    { "name": "꽃문어 코다리찜 (대)", "price_won": 99800, "price_text": "99.8", "category": "meal", "status": "uncertain" }
   ],
   "rejected": []
 }
