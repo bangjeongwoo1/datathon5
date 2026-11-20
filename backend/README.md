@@ -24,8 +24,9 @@ node --env-file=.env server.js
 | `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.5-flash-lite` |
 | `GEMINI_FALLBACK_MODEL` | 선택. 혼잡·타임아웃·한도 초과 시 대신 쓸 모델 |
 | `GEMINI_TIMEOUT_MS` | 선택. 호출 1회 제한 시간. 기본 30000 |
+| `OCR_LIMIT_PER_IP_PER_HOUR`, `OCR_LIMIT_PER_DAY` | 선택. 사진 분석 호출 제한. 기본 IP당 시간당 10건, 하루 전체 200건. 데이터를 한꺼번에 넣어 볼 때만 로컬에서 늘리고, 비용의 상한이므로 배포 서버는 비워 둡니다 |
 | `MENU_PHOTO_DIR` | 선택. 제보 사진 보관 폴더. 기본 `backend/uploads/menu-photos` |
-| `MERCHANT_SOURCE_TABLE` | 선택. 제보에서 가게 번호를 확인할 가게 목록 표. 기본 `merchants` (`merchant_crawl_staging`도 허용) |
+| `MERCHANT_SOURCE_TABLE` | 선택. 제보에서 가게 번호를 확인할 가게 목록 표. 기본 `merchant_crawl_staging`. staging 표가 없는 옛 로컬 DB에서만 `merchants`로 바꿉니다 |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | 로그인 확인용. 프론트 `.env.local`의 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`와 같은 공개 값(`service_role` 키는 넣지 않음). 값 앞에 변수 이름이 중복으로 붙지 않게 주의 |
 | `ADMIN_EMAILS` | 관리자 이메일(쉼표로 구분). 비워 두면 아무도 관리자가 아닙니다 |
 
@@ -57,7 +58,20 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 ```
 
 각 가맹점에는 관리자가 승인한 메뉴판 기준의 `in_under_10000`(`Y`/`N`/없음)과 `min_meal_price_won`(식사 최저가)이 함께 들어갑니다. (`merchant_menu_summary` 뷰, 아래 "DB 테이블" 참고)
-지금은 `merchants` 테이블을 읽습니다. 크롤링이 끝나 `merchant_crawl_staging`으로 바꿀 때는 이 쿼리도 함께 바꿔야 합니다.
+**가게 정보의 메인 테이블은 `merchant_crawl_staging`입니다.** (옛 `merchants`, `merchant_naver_info`는 더 읽지 않습니다.) 쿼리는 `merchantList.js`에 있고, 이 표의 열 이름과 글자로 저장된 값을 화면이 쓰는 모양으로 바꿔 내려줍니다.
+
+| 응답 항목 | 원본(`merchant_crawl_staging`) |
+|---|---|
+| `merchant_id` | `merchant_id` (숫자 글자, 예 `"2441"`) |
+| `region`, `name`, `address` | `signguNm`, `mrhstNm`, `rdnmadr`(없으면 `lnmadr`) |
+| `latitude`, `longitude` | 글자로 저장된 좌표를 숫자로 변환(숫자가 아니면 비움) |
+| `category` | `Cuisine`으로 만든 큰 분류: 편의점, 마트·슈퍼, 반찬·식품, 제과·간식, 기타, 음식점. `Cuisine`이 비면(판별불가) 미분류 |
+| `phone` | `phoneNumber`. `000-0000-0000`처럼 0과 하이픈뿐인 값은 번호 없음(null) |
+| `naver_cuisine`, `naver_classification`, `address_check` | `Cuisine`, `네이버기반판별`, `주소확인` |
+| `weekday_*`, `saturday_*`, `holiday_*` | 평일·토요일·**공휴일** 영업시간(원본에는 일요일이 없습니다) |
+| `in_under_10000`, `min_meal_price_won`, `confirmed_meals` | 승인된 메뉴 기준 판정과 확정 식사 메뉴 |
+
+판별불가·주점의심 가게도 데이터 그대로 포함합니다(크롤링으로 갱신할 예정이라 거르는 규칙을 두지 않았습니다). 정렬은 번호 순입니다.
 
 ## 전체 흐름
 
@@ -117,14 +131,14 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 가게를 지정해 메뉴판 사진을 **제보**합니다. 위의 OCR 결과를 `menu_submissions`에 **검수 대기(`pending`)로 저장**하고, 원본 사진을 비공개 폴더에 보관합니다. 관리자가 승인하기 전에는 지도에 반영되지 않습니다.
 
 ```powershell
-curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu-submissions
+curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/2441/menu-submissions
 ```
 
-- 요청: `:merchantId`는 지금 지도가 쓰는 **`merchants.merchant_id`**(예: `CC-000166`)이고, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
+- 요청: `:merchantId`는 지도가 쓰는 **`merchant_crawl_staging.merchant_id`**(예: `2441`)이고, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
 - 성공(201): `submission_id`, `status: "pending"`, `has_uncertain`, `items`, `rejected`, `model`
 - 실패: 사진 없음·형식 오류·잘못된 가맹점 번호 `400`, 없는 가맹점 `404`, 메뉴를 읽지 못함 `422`(저장하지 않음), 호출 제한 초과 `429`
 - 없는 가맹점은 AI를 호출하기 **전에** 거절하므로 비용이 들지 않습니다.
-- 가게 번호가 있는지는 기본으로 `merchants`에서 확인하고, 이때 가게 이름·주소도 함께 찾아 제보와 같이 저장합니다. 지도의 가게 목록을 `merchant_crawl_staging`으로 바꾸는 날에는 `.env`에 `MERCHANT_SOURCE_TABLE=merchant_crawl_staging` 한 줄만 넣으면 됩니다. (`merchants`와 `merchant_crawl_staging`만 허용합니다.)
+- 가게 번호가 있는지는 `merchant_crawl_staging`에서 확인하고, 이때 가게 이름·주소도 함께 찾아 제보와 같이 저장합니다. staging 표가 없는 옛 로컬 DB에서만 `.env`에 `MERCHANT_SOURCE_TABLE=merchants`를 적어 씁니다. (`merchants`와 `merchant_crawl_staging`만 허용합니다.)
 - 사진은 `backend/uploads/menu-photos/`에 서버가 정한 이름으로 저장됩니다(Git에 올라가지 않음). 관리자가 승인·반려하면 삭제합니다. 폴더는 `MENU_PHOTO_DIR`로 바꿀 수 있습니다.
 - DB 저장이 실패하면 방금 저장한 사진도 함께 지웁니다.
 - 로그인한 사용자가 올리면 제출자(`submitted_by`, `submitted_email`)가 기록되고, 로그인하지 않아도 제보는 받습니다. (`auth.js`의 `attachUser`)
@@ -167,9 +181,13 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu
 
 - 파일: `001_menu_tables.sql`(테이블), `002_menu_summary_and_snapshot.sql`(판정 뷰, 이름·주소 저장 열, RLS)
 - 적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
-- 메뉴 테이블의 `merchant_id`는 지금 **`merchants`**를 가리킵니다. 크롤링이 끝나 지도의 가게 목록을 `merchant_crawl_staging`으로 바꿀 때는 `migrations/later/003_menu_tables_on_staging.sql`을 적용합니다. 이 폴더는 `migrate.js`가 읽지 않으므로 실수로 적용되지 않습니다. 옛 번호로 저장된 제보는 제출 당시의 가게 이름·주소로 새 번호를 찾아 바꾸고, 하나라도 바꾸지 못하면 전체가 되돌려집니다.
+- 메뉴 제보·확정 메뉴·리뷰의 `merchant_id`는 **`merchant_crawl_staging`**을 가리켜야 합니다. 아직 옛 `merchants`를 가리키는 DB에서는 `migrations/later/003_switch_to_crawl_staging.sql`을 Supabase SQL Editor에서 직접 실행합니다. (이 폴더는 `migrate.js`가 읽지 않아 실수로 적용되지 않습니다.)
+  - 옛 번호(`CC-000001`)를 새 번호로 바꾸는 기준: 이름이 같고 도로명+건물번호가 같은 가게가 정확히 한 곳이면 그 번호로, 못 찾으면 이름과 시군구가 같은 가게가 정확히 한 곳일 때만 바꿉니다. 모호하거나 못 찾는 번호가 하나라도 있으면 어떤 번호인지 알리고 **전체를 되돌립니다.**
+  - 제보·메뉴·리뷰 3개 표의 연결을 `staging`으로 옮기고, 리뷰 집계 뷰(`merchant_review_summary`)를 `staging` 기준으로 다시 만듭니다. `merchants`, `merchant_naver_info`는 지우지 않습니다. 여러 번 실행해도 안전합니다.
+  - **서버(Render) 배포와 같이 해야 합니다.** DB만 바꾸면 리뷰·만원 이하 필터·사진 제보가 잠시 동작하지 않습니다. 리뷰는 다른 팀원 담당이라 미리 알려야 합니다.
+  - 적용 뒤에는 `staging` 행을 지우거나 `merchant_id`를 바꾸면 안 됩니다. 크롤링으로 다시 채울 때는 행을 갱신(UPDATE/UPSERT)하세요. 연결 때문에 지우기가 막히고, 지우면 그 가게의 확정 메뉴도 함께 지워집니다.
 
 ## 남은 작업
 
 - 사진 저장소를 Supabase Storage로 교체(배포용)
-- 크롤링 완료 후 가게 목록을 `merchant_crawl_staging`으로 전환
+- 마이그레이션 003을 공용 DB에 적용(서버 배포와 같이)

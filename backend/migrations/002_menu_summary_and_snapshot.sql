@@ -3,7 +3,7 @@
 --      (3) 행 단위 보안(RLS) 켜기
 --
 -- 메뉴 테이블이 가리키는 "가게 목록"(지금은 merchants)은 건드리지 않는다.
--- 크롤링이 끝나고 가게 목록을 merchant_crawl_staging 으로 옮길 때는 later/003 을 적용한다.
+-- 크롤링이 끝나고 가게 목록을 merchant_crawl_staging 으로 옮길 때는 later/003_switch_to_crawl_staging.sql 을 적용한다.
 -- 여러 번 실행해도 안전하다.
 
 -- 1) 제출 당시 가게 이름·주소 (나중에 가게 번호 체계가 바뀌어도 다시 연결할 수 있는 단서)

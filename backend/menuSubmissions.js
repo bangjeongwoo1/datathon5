@@ -46,9 +46,8 @@ export async function deletePhoto(name) {
 }
 
 // 가게 번호(merchant_id)가 실제 있는 번호인지 확인하는 "가게 목록" 테이블.
-// 지금 지도의 가게 목록이 merchants 에서 오므로 기본은 merchants 이다.
-// 크롤링이 끝나 지도 목록을 merchant_crawl_staging 으로 바꿀 때는 .env 에
-// MERCHANT_SOURCE_TABLE=merchant_crawl_staging 한 줄만 넣으면 된다. (이 파일은 고칠 필요 없음)
+// 가게 정보의 메인 테이블은 merchant_crawl_staging 이므로 기본이 이것이다.
+// staging 표가 없는 옛 로컬 DB 에서만 .env 에 MERCHANT_SOURCE_TABLE=merchants 를 적어 쓴다.
 // 테이블 이름은 SQL 에 들어가므로 아래 목록에 있는 것만 허용한다.
 const MERCHANT_SOURCES = {
   // 표마다 가게 이름·주소 칸의 이름이 다르다.
@@ -57,7 +56,7 @@ const MERCHANT_SOURCES = {
 };
 
 export function merchantSourceTable() {
-  const name = process.env.MERCHANT_SOURCE_TABLE || 'merchants';
+  const name = process.env.MERCHANT_SOURCE_TABLE || 'merchant_crawl_staging';
   if (!Object.hasOwn(MERCHANT_SOURCES, name)) {
     throw new Error(
       `MERCHANT_SOURCE_TABLE은 ${Object.keys(MERCHANT_SOURCES).join(', ')} 중 하나여야 합니다. (현재 값: ${name})`
@@ -87,7 +86,7 @@ export async function findMerchant(db, merchantId) {
       // 테이블이 없는 DB에 접속한 경우: 원인과 해결 방법을 서버 로그에 남긴다.
       throw new Error(
         `가게 목록 테이블 public.${table} 이(가) 이 DB에 없습니다. ` +
-          'backend/.env 의 MERCHANT_SOURCE_TABLE 값(merchants 또는 merchant_crawl_staging)을 확인하세요.'
+          '가게 정보 표(merchant_crawl_staging)가 없는 옛 로컬 DB 라면 backend/.env 에 MERCHANT_SOURCE_TABLE=merchants 를 적어 주세요.'
       );
     }
     throw error;

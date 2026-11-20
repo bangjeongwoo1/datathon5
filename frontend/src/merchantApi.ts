@@ -21,8 +21,9 @@ type DbMerchant = {
   weekday_close: string | null
   saturday_open: string | null
   saturday_close: string | null
-  sunday_open: string | null
-  sunday_close: string | null
+  // 가맹점 원본 데이터에는 일요일이 아니라 공휴일 영업시간이 있다.
+  holiday_open: string | null
+  holiday_close: string | null
 
   // 관리자가 승인한 메뉴 기준(merchant_menu_summary). 승인된 메뉴가 없으면 둘 다 null.
   in_under_10000?: 'Y' | 'N' | null
@@ -114,7 +115,7 @@ export async function loadRegionMerchants(
       row.longitude <= 180
     const weekday = formatHours(row.weekday_open, row.weekday_close)
     const saturday = formatHours(row.saturday_open, row.saturday_close)
-    const sunday = formatHours(row.sunday_open, row.sunday_close)
+    const holiday = formatHours(row.holiday_open, row.holiday_close)
     const confirmedMeals = parseConfirmedMeals(row.confirmed_meals)
     return {
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
@@ -140,12 +141,12 @@ export async function loadRegionMerchants(
         ? { naverClassification: row.naver_classification }
         : {}),
 
-      ...(weekday || saturday || sunday
+      ...(weekday || saturday || holiday
         ? {
             businessHours: {
               ...(weekday ? { weekday } : {}),
               ...(saturday ? { saturday } : {}),
-              ...(sunday ? { sunday } : {}),
+              ...(holiday ? { holiday } : {}),
             },
           }
         : {}),
