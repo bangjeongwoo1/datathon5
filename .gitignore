@@ -1,5 +1,10 @@
+<<<<<<< HEAD
+*.pyc
+__pycache__/
+=======
 node_modules/
 .env
 .env.*
 backend/.env
 !.env.example
+>>>>>>> e7bd0f476e23b02b63658ba7337e5174dd1b0d82
