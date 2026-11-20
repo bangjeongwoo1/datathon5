@@ -12,6 +12,15 @@ type DbMerchant = {
   category: string
   source_category_code: string | null
   phone: string | null
+  naver_cuisine: string | null
+  naver_classification: string | null
+
+  weekday_open: string | null
+  weekday_close: string | null
+  saturday_open: string | null
+  saturday_close: string | null
+  sunday_open: string | null
+  sunday_close: string | null
 }
 
 type MerchantResponse = {
@@ -34,6 +43,14 @@ function toUiCategory(category: string): string {
     default:
       return '미분류'
   }
+}
+
+function formatHours(
+  open: string | null,
+  close: string | null
+): string | undefined {
+  if (!open || !close) return undefined
+  return `${open} ~ ${close}`
 }
 
 // 선택 지역의 전체 가맹점을 페이지 단위로 불러오기
@@ -88,7 +105,9 @@ export async function loadRegionMerchants(
       row.latitude <= 90 &&
       row.longitude >= -180 &&
       row.longitude <= 180
-
+    const weekday = formatHours(row.weekday_open, row.weekday_close)
+    const saturday = formatHours(row.saturday_open, row.saturday_close)
+    const sunday = formatHours(row.sunday_open, row.sunday_close)
     return {
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
       // 화면 내 임시 ID를 부여
@@ -98,7 +117,27 @@ export async function loadRegionMerchants(
       category: toUiCategory(row.category),
       rawCategory: row.category,
       detailCategory:
-        row.source_category_code ?? row.category,
+        row.naver_cuisine?.trim() ||
+        row.source_category_code ||
+        row.category,
+
+      ...(row.naver_cuisine?.trim()
+        ? { naverCuisine: row.naver_cuisine.trim() }
+        : {}),
+
+      ...(row.naver_classification
+        ? { naverClassification: row.naver_classification }
+        : {}),
+
+      ...(weekday || saturday || sunday
+        ? {
+            businessHours: {
+              ...(weekday ? { weekday } : {}),
+              ...(saturday ? { saturday } : {}),
+              ...(sunday ? { sunday } : {}),
+            },
+          }
+        : {}),
 
       ...(hasCoordinates
         ? {
