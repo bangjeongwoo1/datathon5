@@ -53,3 +53,52 @@ test('조회 근거만 제한해서 전달하고 후보 가격의 한계를 지�
     assert.match(messages[0].content, /후보 가격/);
   });
 });
+
+test('일시적인 모델 오류는 한 번만 재시도하고 실제 모델 답변을 반환한다', async () => {
+  let calls = 0;
+  const client = { chat: { completions: { create: async () => {
+    if (++calls === 1) throw Object.assign(new Error('temporary'), { status: 503 });
+    return { choices: [{ message: { content: JSON.stringify({ action: 'search', query: { terms: '', category: '일반음식점', budget: 10000 } }) } }] };
+  } } } };
+  await withServer(client, async post => {
+    const r = await post('/api/guide-intent', { text: '만원 이하 식당 찾아줘' });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).query.budget, 10000);
+    assert.equal(calls, 2);
+  });
+});
+
+test('형식 오류를 재요청하고 Qwen에는 strict schema를 사용한다', async () => {
+  const before = process.env.GUIDE_TEXT_MODEL;
+  process.env.GUIDE_TEXT_MODEL = 'qwen/qwen3.8-27b';
+  let calls = 0;
+  const client = { chat: { completions: { create: async (input, options) => {
+    assert.equal(input.response_format.type, 'json_schema');
+    assert.equal(input.response_format.json_schema.strict, true);
+    assert.equal(options.timeout, 5000);
+    assert.equal(options.maxRetries, 0);
+    return { choices: [{ message: { content: ++calls === 1 ? '{}' : '{"reply":"확인한 메뉴를 설명해 드릴게요."}' } }] };
+  } } } };
+  try {
+    await withServer(client, async post => {
+      const r = await post('/api/guide-answer', { text: '추천 이유가 뭐야?' });
+      assert.equal(r.status, 200);
+      assert.equal(calls, 2);
+    });
+  } finally { process.env.GUIDE_TEXT_MODEL = before; }
+});
+
+test('인증 실패와 한도 초과는 재시도하지 않고 원인을 구분한다', async () => {
+  for (const [status, code, responseStatus] of [[401, 'AI_AUTH_FAILED', 502], [429, 'AI_RATE_LIMITED', 429]]) {
+    let calls = 0;
+    const client = { chat: { completions: { create: async () => {
+      calls++; throw Object.assign(new Error('not logged'), { status });
+    } } } };
+    await withServer(client, async post => {
+      const r = await post('/api/guide-intent', { text: '식당 찾아줘' });
+      assert.equal(r.status, responseStatus);
+      assert.equal((await r.json()).error, code);
+      assert.equal(calls, 1);
+    });
+  }
+});

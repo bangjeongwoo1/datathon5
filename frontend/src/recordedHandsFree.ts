@@ -1,5 +1,6 @@
 import { apiUrl } from './apiUrl.ts'
 import { activateVoice, findVoiceWake } from './voiceActivation.ts'
+import { createVoiceActivity } from './voiceActivity.ts'
 
 export function createHandsFree(
   onCommand: (text: string) => void,
@@ -80,13 +81,13 @@ export function createHandsFree(
       audioContext.createMediaStreamSource(microphone).connect(analyser)
       const samples = new Float32Array(analyser.fftSize)
       let voiced = 0
-      let silent = 0
       let frames = 0
       let processing = false
       let chunks: Blob[] = []
       let discard = false
       let timedCapture = false
       let failures = 0
+      let activity = createVoiceActivity()
 
       async function transcribe(blob: Blob) {
         if (current !== generation) return
@@ -126,10 +127,9 @@ export function createHandsFree(
           if (current === generation) {
             processing = false
             voiced = 0
-            silent = 0
             frames = 0
             if (enabled && !pauses.size) onState(true,
-              Date.now() < conversationUntil ? '요청 한 가지를 말씀하세요.' : '“안녕 잇다”라고 불러 주세요.')
+              Date.now() < conversationUntil ? '요청 한 가지를 말씀하세요.' : '“잇다야” 또는 “이따야”라고 불러 주세요.')
             if (enabled && !pauses.size) {
               clearTimeout(restart)
               restart = setTimeout(() => {
@@ -143,10 +143,10 @@ export function createHandsFree(
       function beginRecording() {
         chunks = []
         voiced = 0
-        silent = 0
         frames = 0
         discard = false
         timedCapture = audioContext.state !== 'running'
+        activity = createVoiceActivity()
         const capture = new MediaRecorder(microphone)
         recorder = capture
         capture.ondataavailable = event => { if (event.data.size) chunks.push(event.data) }
@@ -161,7 +161,6 @@ export function createHandsFree(
           if (discard || (!timedCapture && voiced < 2) || !blob.size) {
             processing = false
             voiced = 0
-            silent = 0
             frames = 0
             if (enabled && !pauses.size) beginRecording()
             return
@@ -189,15 +188,12 @@ export function createHandsFree(
         }
         analyser.getFloatTimeDomainData(samples)
         const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length)
-        if (rms > 0.008) {
-          voiced++
-          silent = 0
-          if (voiced === 2) onState(true, '말씀을 듣고 있어요.')
-        } else if (recorder && voiced > 0) silent++
-        frames++
-        if (recorder && ((voiced > 0 && silent >= 12) || frames >= 150)) {
+        const frame = activity.sample(rms)
+        if (frame.hasSpeech) voiced = 2
+        if (frame.justStarted) onState(true, '말씀을 듣고 있어요.')
+        if (recorder && frame.shouldStop) {
           processing = true
-          discard = voiced < 2
+          discard = !frame.hasSpeech
           recorder.stop()
         }
       }, 100)
