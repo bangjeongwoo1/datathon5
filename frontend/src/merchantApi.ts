@@ -1,9 +1,10 @@
 
-import { apiUrl } from './apiUrl'
+import { apiUrl } from './apiUrl.ts'
 import type { Merchant } from './merchants'
 
 type DbMerchant = {
-  merchant_id: string
+  // 숫자·문자열 어느 쪽으로 오든 문자열로 통일해서 쓴다.
+  merchant_id: string | number
   region: string
   name: string
   address: string | null
@@ -21,6 +22,10 @@ type DbMerchant = {
   saturday_close: string | null
   sunday_open: string | null
   sunday_close: string | null
+
+  // 관리자가 승인한 메뉴 기준(merchant_menu_summary). 승인된 메뉴가 없으면 둘 다 null.
+  in_under_10000?: 'Y' | 'N' | null
+  min_meal_price_won?: number | string | null
 }
 
 type MerchantResponse = {
@@ -112,8 +117,9 @@ export async function loadRegionMerchants(
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
       // 화면 내 임시 ID를 부여
       id: index + 1,
-      // DB의 진짜 기본키. 리뷰 등 DB 행을 정확히 가리켜야 하는 기능은 이 값을 사용한다.
-      merchantId: row.merchant_id,
+      // DB의 진짜 기본키. 리뷰·메뉴판 사진 제보처럼 DB 행을 정확히 가리켜야 하는 기능은 이 값을 사용한다.
+      // 숫자·문자열 어느 쪽으로 오든 문자열로 통일한다.
+      merchantId: String(row.merchant_id),
       name: row.name,
       address: row.address ?? '',
       category: toUiCategory(row.category),
@@ -157,6 +163,12 @@ export async function loadRegionMerchants(
       hours: '',
       distance: 0,
       ...(row.phone ? { phone: row.phone } : {}),
+      ...(row.in_under_10000 === 'Y' || row.in_under_10000 === 'N'
+        ? { under10000: row.in_under_10000 }
+        : {}),
+      ...(row.min_meal_price_won != null && Number.isFinite(Number(row.min_meal_price_won))
+        ? { minMealPriceWon: Number(row.min_meal_price_won) }
+        : {}),
     }
   })
 }

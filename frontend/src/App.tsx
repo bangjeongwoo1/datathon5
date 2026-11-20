@@ -5,6 +5,7 @@ import { scopeMerchants } from './mapClusters'
 import KakaoMap from './KakaoMap'
 import type { ReactNode } from 'react'
 import VoiceSearch from './VoiceSearch'
+import MenuUploadModal from './MenuUploadModal'
 import { filterMerchants } from './merchants'
 import { loadRegionMerchants } from './merchantApi'
 import type { Merchant } from './merchants'
@@ -106,10 +107,12 @@ function App(){
  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('전체')
  const [sortMode,setSortMode]=useState<SortMode>('rating')
  const [minReviewsOnly,setMinReviewsOnly]=useState(false)
+ const [underTenOnly,setUnderTenOnly]=useState(false)
  const [userLocation,setUserLocation]=useState<Coordinates|null>(null)
 
  const [selectionRequest,setSelectionRequest]=useState(0)
  const [selectedId, setSelectedId] = useState<number | null>(null)
+ const [uploadStore, setUploadStore] = useState<Merchant | null>(null)
 const [regionOpen, setRegionOpen] = useState(false)
 const [centerRequest] = useState(0)
  const [notice,setNotice]=useState(''),[policy,setPolicy]=useState<string|null>(null)
@@ -131,8 +134,9 @@ const filtered = useMemo(
   () => filterMerchants(merchants, {
     query: search,
     category,
+    underTenOnly,
   }),
-  [merchants, search, category]
+  [merchants, search, category, underTenOnly]
 )
  const visible=useMemo(()=>scopeMerchants(filtered,clusterIds),[filtered,clusterIds])
 
@@ -174,7 +178,7 @@ const selectRegion = useCallback((ids: number[]) => {
  useEffect(()=>{if(clusterIds!==null)resultsHeading.current?.focus()},[clusterIds])
  const clearRegion=()=>{setClusterIds(null);setSelectedId(null);requestAnimationFrame(()=>resultsHeading.current?.focus())}
  const selected=visible.find(s=>s.id===selectedId)
- const reset=()=>{setQuery('');setSearch('');setCategory('전체');setSortMode('rating');setMinReviewsOnly(false);setSelectedId(null);setClusterIds(null)}
+ const reset=()=>{setQuery('');setSearch('');setCategory('전체');setSortMode('rating');setMinReviewsOnly(false);setUnderTenOnly(false);setSelectedId(null);setClusterIds(null)}
 
 
 const changeRegion = (nextRegion: Region) => {
@@ -408,9 +412,13 @@ onClick={() => {
     <input type="checkbox" checked={minReviewsOnly} onChange={e=>setMinReviewsOnly(e.target.checked)}/>
     리뷰 10개 미만 제외
   </label>
+  <label className="sort-min-reviews">
+    <input type="checkbox" checked={underTenOnly} onChange={e=>setUnderTenOnly(e.target.checked)}/>
+    만원 이하 식사
+  </label>
 </div>
  {clusterIds!==null&&<div className="cluster-selection"><span><Icon name="pin" size={14}/>선택한 묶음의 가맹점 {visible.length}곳</span><button onClick={clearRegion}>전체 목록 보기 ×</button></div>}
- <div className="store-list" aria-live="polite">{!sortedVisible.length?<div className="empty"><Icon name="search" size={32}/><h3>검색 결과가 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p><button onClick={reset}>필터 초기화</button></div>:sortedVisible.map(s=><article key={s.id} className={`store-card ${selectedId===s.id?'selected':''}`}><div className="store-top"><span className={`category-label ${color(s.category)}`}>{s.category}</span><span className="status closed">
+ <div className="store-list" aria-live="polite">{!sortedVisible.length?<div className="empty"><Icon name="search" size={32}/><h3>검색 결과가 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p><button onClick={reset}>필터 초기화</button></div>:sortedVisible.map(s=><article key={s.id} className={`store-card ${selectedId===s.id?'selected':''}`}><div className="store-top"><span className={`category-label ${color(s.category)}`}>{s.category}</span>{s.under10000==='Y'&&<span className="under-ten-badge">만원 이하{s.minMealPriceWon?` · ${s.minMealPriceWon.toLocaleString('ko-KR')}원~`:''}</span>}<span className="status closed">
   영업 여부 미확인
 </span></div><button className="store-title" aria-pressed={selectedId===s.id} onClick={()=>{setSelectedId(s.id);setSelectionRequest(n=>n+1)}}>{s.name}<span>›</span></button>{s.merchantId && reviewSummaries[s.merchantId] && (reviewSummaries[s.merchantId].reviewCount>0?<span className="store-rating">★ {reviewSummaries[s.merchantId].avgRating?.toFixed(1)}</span>:<span className="store-rating none">평가 없음</span>)}<p className="store-address">{s.address}</p><div className="store-details">
   {s.phone && <span>{s.phone}</span>}
@@ -420,7 +428,7 @@ onClick={() => {
  <section className="map" aria-label="춘천 중심부 카카오 지도"><KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} onLocationChange={receiveLocation} userLocation={userLocation}/>
  {selected&&<div className="map-popup"><div className="popup-head"><span className="popup-kicker">
   선택한 가맹점 <span>공공데이터 기반</span>
-</span><button aria-label="매장 상세 닫기" onClick={()=>setSelectedId(null)}>×</button></div><div className="popup-title"><span className="popup-icon"><Icon name="pin" size={23}/></span><div><h2>{selected.name}</h2><p>{selected.category} <span>·</span> <b>영업 여부 미확인</b></p></div></div><div className="popup-info"><p><Icon name="pin" size={16}/>{selected.address}</p>{selected.phone && (
+</span><button aria-label="매장 상세 닫기" onClick={()=>setSelectedId(null)}>×</button></div><div className="popup-title"><span className="popup-icon"><Icon name="pin" size={23}/></span><div><h2>{selected.name}</h2><p>{selected.category} <span>·</span> <b>영업 여부 미확인</b>{selected.under10000==='Y'&&<> <span>·</span> <b className="under-ten-text">만원 이하 식사 있음</b></>}</p></div></div><div className="popup-info"><p><Icon name="pin" size={16}/>{selected.address}</p>{selected.phone && (
   <p>
     <Icon name="phone" size={16}/>
     {selected.phone}
@@ -457,10 +465,11 @@ onClick={() => {
 
 </div><div className="popup-meal"><span>든든한 한 끼 추천</span><strong>{selected.menu?.join(' · ') ?? ''}</strong></div><div className="popup-actions"><button onClick={()=>route(selected)}><Icon name="arrow" size={17}/>길찾기 ↗</button><button onClick={() => phone(selected)}>
   <Icon name="phone" size={16}/>전화 안내
-</button></div><ReviewPanel key={selected.merchantId??selected.id} merchantId={selected.merchantId} merchantName={selected.name}/><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
+</button>{selected.merchantId&&<button className="popup-upload" onClick={()=>setUploadStore(selected)}>메뉴판 사진 올리기</button>}</div><ReviewPanel key={selected.merchantId??selected.id} merchantId={selected.merchantId} merchantName={selected.name}/><p className="popup-footnote">방문 전 실제 가맹 여부와 이용 가능 메뉴를 확인해 주세요.</p></div>}
  <div className="map-legend"><strong>가맹점 유형</strong><span><i className="blue"/>일반음식점</span><span><i className="green"/>편의점</span><span><i className="orange"/>베이커리/간식</span><span><i className="purple"/>마트</span></div></section></main>
  <footer className="footer"><div className="footer-brand"><img className="footer-logo" src="/eatda-logo.png" alt="잇다 로고"/><div><strong>아동급식카드 종합지원센터</strong><p>아이들의 건강한 오늘, 함께 만드는 따뜻한 내일</p></div></div><div className="footer-data">지자체 아동복지과 공공데이터 연계 안내<span>공공데이터 기반 정보이며, 최신 가맹 여부와 영업 상태는 방문 전 확인해 주세요.</span></div><div className="footer-support"><span>고객지원 문의 <strong>1544-3674</strong></span><div><button onClick={e=>{policyTrigger.current=e.currentTarget;setPolicy('이용약관')}}>이용약관</button><i/><button onClick={e=>{policyTrigger.current=e.currentTarget;setPolicy('개인정보처리방침')}}>개인정보처리방침</button></div></div></footer>
  {(notice||authError)&&<div className="toast" role="status"><Icon name="info" size={18}/>{notice||authError}<button aria-label="알림 닫기" onClick={()=>{setNotice('');clearAuthError()}}>×</button></div>}
+ {uploadStore?.merchantId&&<MenuUploadModal merchantId={uploadStore.merchantId} merchantName={uploadStore.name} onClose={()=>setUploadStore(null)}/>}
  {policy&&<div className="modal-backdrop" onClick={closePolicy}><section className="policy-modal" role="dialog" aria-modal="true" aria-label={policy} onKeyDown={e=>{if(e.key==='Escape')closePolicy();if(e.key==='Tab')e.preventDefault()}} onClick={e=>e.stopPropagation()}><h2>{policy} · 시안 안내</h2><p>이 화면은 비공식 디자인 프로토타입입니다. 개인정보를 수집하거나 저장하지 않으며 검색과 필터는 브라우저 안에서 처리합니다. 길찾기는 외부 카카오맵 검색으로 연결됩니다.</p><p>실제 약관 및 개인정보처리방침은 운영기관의 공식 안내를 확인해 주세요.</p><button autoFocus onClick={closePolicy}>확인</button></section></div>}
  </div>
 }

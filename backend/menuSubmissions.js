@@ -45,12 +45,57 @@ export async function deletePhoto(name) {
   await fs.rm(path.join(photoDir(), path.basename(name)), { force: true });
 }
 
+// 가게 번호(merchant_id)가 실제 있는 번호인지 확인하는 "가게 목록" 테이블.
+// 지금 지도의 가게 목록이 merchants 에서 오므로 기본은 merchants 이다.
+// 크롤링이 끝나 지도 목록을 merchant_crawl_staging 으로 바꿀 때는 .env 에
+// MERCHANT_SOURCE_TABLE=merchant_crawl_staging 한 줄만 넣으면 된다. (이 파일은 고칠 필요 없음)
+// 테이블 이름은 SQL 에 들어가므로 아래 목록에 있는 것만 허용한다.
+const MERCHANT_SOURCES = {
+  // 표마다 가게 이름·주소 칸의 이름이 다르다.
+  merchants: { name: 'name', address: 'address' },
+  merchant_crawl_staging: { name: '"mrhstNm"', address: '"rdnmadr"' },
+};
+
+export function merchantSourceTable() {
+  const name = process.env.MERCHANT_SOURCE_TABLE || 'merchants';
+  if (!Object.hasOwn(MERCHANT_SOURCES, name)) {
+    throw new Error(
+      `MERCHANT_SOURCE_TABLE은 ${Object.keys(MERCHANT_SOURCES).join(', ')} 중 하나여야 합니다. (현재 값: ${name})`
+    );
+  }
+  return name;
+}
+
+/**
+ * 가게 번호로 가게를 찾아 { name, address }를 돌려준다. 없으면 null.
+ * 이름·주소는 제보에 함께 저장해 두었다가, 나중에 가게 번호 체계가 바뀔 때 다시 연결하는 데 쓴다.
+ */
+export async function findMerchant(db, merchantId) {
+  const table = merchantSourceTable();
+  const cols = MERCHANT_SOURCES[table];
+  try {
+    const result = await db.query(
+      `SELECT ${cols.name} AS name, ${cols.address} AS address
+         FROM public.${table} WHERE merchant_id = $1`,
+      [merchantId]
+    );
+    if (result.rows.length === 0) return null;
+    const { name, address } = result.rows[0];
+    return { name: name ?? null, address: address ?? null };
+  } catch (error) {
+    if (error.code === '42P01') {
+      // 테이블이 없는 DB에 접속한 경우: 원인과 해결 방법을 서버 로그에 남긴다.
+      throw new Error(
+        `가게 목록 테이블 public.${table} 이(가) 이 DB에 없습니다. ` +
+          'backend/.env 의 MERCHANT_SOURCE_TABLE 값(merchants 또는 merchant_crawl_staging)을 확인하세요.'
+      );
+    }
+    throw error;
+  }
+}
+
 export async function merchantExists(db, merchantId) {
-  const result = await db.query(
-    'SELECT 1 FROM public.merchants WHERE merchant_id = $1',
-    [merchantId]
-  );
-  return result.rows.length > 0;
+  return (await findMerchant(db, merchantId)) !== null;
 }
 
 /**
@@ -58,10 +103,11 @@ export async function merchantExists(db, merchantId) {
  * 사진을 먼저 저장하고 DB에 넣으며, DB 저장이 실패하면 사진도 지운다.
  *
  * @param db      pg Pool 또는 query(sql, params)를 가진 객체
- * @param options { merchantId, buffer, mimeType, ocr: { items, rejected, model }, user? }
+ * @param options { merchantId, merchant?, buffer, mimeType, ocr: { items, rejected, model }, user? }
+ *   merchant: findMerchant 가 찾은 { name, address }. 제출 당시의 가게 이름·주소로 함께 저장한다.
  *   user: 로그인 기능이 붙으면 { id, email }. 아직 없으면 비워 둔다.
  */
-export async function submitMenuPhoto(db, { merchantId, buffer, mimeType, ocr, user }) {
+export async function submitMenuPhoto(db, { merchantId, merchant, buffer, mimeType, ocr, user }) {
   const photoPath = await savePhoto(buffer, mimeType);
 
   try {
@@ -70,8 +116,8 @@ export async function submitMenuPhoto(db, { merchantId, buffer, mimeType, ocr, u
     const result = await db.query(
       `INSERT INTO public.menu_submissions
          (merchant_id, submitted_by, submitted_email, photo_path,
-          items, rejected, model, has_uncertain)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8)
+          items, rejected, model, has_uncertain, merchant_name, merchant_address)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10)
        RETURNING submission_id, status, created_at`,
       [
         merchantId,
@@ -82,6 +128,8 @@ export async function submitMenuPhoto(db, { merchantId, buffer, mimeType, ocr, u
         JSON.stringify(ocr.rejected ?? []),
         ocr.model ?? null,
         hasUncertain,
+        merchant?.name ?? null,
+        merchant?.address ?? null,
       ]
     );
 
