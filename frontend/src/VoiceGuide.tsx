@@ -6,9 +6,10 @@ import { createGuideSpeech } from './guideSpeech'
 import { mealsWithinBudget } from './mealPrice'
 import { createHandsFree } from './recordedHandsFree'
 import { GuideLocationError, requestNavigationFix, watchNavigationFix } from './guideLocation'
-import { estimateArrival, arrivalCommand, merchantCallUrl, helpCallScript, requestMerchantCall } from './arrivalAssist'
+import { estimateArrival, estimateRouteEnd, arrivalCommand, merchantCallUrl, helpCallScript, requestMerchantCall } from './arrivalAssist'
 import type { ArrivalReading } from './arrivalAssist'
 import { guideSelection, normalizeVoiceCommand } from './voiceActivation'
+import { spokenConsent } from './spokenConsent'
 import type { Merchant } from './merchants'
 import VoiceSearch from './VoiceSearch'
 import { parseVoiceIntent } from './voiceIntent'
@@ -18,7 +19,7 @@ import './VoiceGuide.css'
 
 type Fix = Point & { accuracy: number }
 type Query = { terms: string; category: string; budget: number | null }
-type Intent = { action: 'search' | 'closer' | 'remaining' | 'sign' | 'yes' | 'no' | 'reply'; query?: Query; reply?: string }
+type Intent = { action: 'search' | 'navigate' | 'closer' | 'remaining' | 'sign' | 'yes' | 'no' | 'reply'; query?: Query; reply?: string }
 type Option = { store: Merchant; route: WalkingRoute; search: Query }
 type ArrivalState = { store: Merchant; reading: ArrivalReading; stage: 'nearby' | 'help-offered' | 'call-ready' | 'confirmed' }
 export type VoiceStatus = { enabled: boolean; message: string; heard: string; answer: string; error: string }
@@ -110,6 +111,8 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   const [text, setText] = useState('')
   const [results, setResults] = useState<{ store: Merchant; search: Query }[]>([])
   const [resultIndex, setResultIndex] = useState(0)
+  const routeOffer = useRef<{ store: Merchant; search: Query } | null>(null)
+  const conversation = useRef<{ role: 'user' | 'assistant'; text: string }[]>([])
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [listeningStatus, setListeningStatus] = useState('')
   const [heard, setHeard] = useState<{ text: string; accepted: boolean } | null>(null)
@@ -219,12 +222,16 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     try {
       const answer = await post<{ reply: string }>('/api/guide-answer', {
         text: lastQuestion.current || '현재 선택된 가맹점과 확인된 메뉴를 설명해 주세요.',
-        facts: facts(items), selectedName: option.store.name,
+        facts: facts(items), recommendedName: option.store.name,
+        selectedName: selected?.id === option.store.id ? selected.name : '',
+        history: conversation.current, offerRoute: false,
       }, combineVoiceSignals([request.signal, voiceTimeoutSignal(12000)]))
       if (request.signal.aborted) return
       if (typeof answer.reply !== 'string' || !answer.reply.trim()) throw new Error('Empty answer')
       setAiNotice('')
-      return say(answer.reply)
+      routeOffer.current = option.store.coordinates ? option : null
+      if (routeOffer.current) handsFree.requestCommand()
+      return say(routeOffer.current ? `${answer.reply} ${option.store.name}까지 길 안내할까요?` : answer.reply)
     } catch (error) {
       if (request.signal.aborted) return
       setAiNotice('대화 AI 응답 재시도가 필요해요.')
@@ -233,6 +240,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   }
 
   function say(message: string) {
+    conversation.current = [...conversation.current, { role: 'assistant' as const, text: message }].slice(-8)
     setStatus(message)
     if (!recording.current) void speech.speak(message)
   }
@@ -265,15 +273,22 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
         return
       }
       if (active.store.coordinates) {
-        const reading = estimateArrival(fix, active.store.coordinates, active.route.meters - progress.offset)
+        const remaining = Math.max(0, active.route.meters - progress.offset)
+        let reading = estimateArrival(fix, active.store.coordinates, remaining)
+        const atRouteEnd = reading.proximity === 'outside'
+          ? estimateRouteEnd(fix, active.route.segments.at(-1)?.path.at(-1), remaining) : null
+        if (atRouteEnd) reading = atRouteEnd
         if (reading.proximity !== 'outside') {
           const currentArrival = arrivalRef.current
           if (!currentArrival || currentArrival.store.id !== active.store.id) {
             const canCall = Boolean(merchantCallUrl(active.store.phone))
+            routeOffer.current = null
             updateArrival({ store: active.store, reading, stage: canCall ? 'help-offered' : 'nearby' })
             handsFree.requestCommand()
             onActivity?.()
-            const proximityMessage = reading.proximity === 'uncertain'
+            const proximityMessage = atRouteEnd
+              ? '안내 경로의 끝 근처로 보이지만 가게 위치는 아직 확인되지 않았어요.'
+              : reading.proximity === 'uncertain'
               ? `${active.store.name} 근처로 보이지만 위치 오차가 커요.`
               : reading.proximity === 'very-close'
                 ? `${active.store.name}의 등록 좌표에서 약 2미터 이내로 추정돼요.`
@@ -339,6 +354,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   }
 
   function start(option: Option) {
+    routeOffer.current = null
     updateArrival(null)
     setActive(option)
     setProposal(null)
@@ -371,6 +387,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   }
 
   function offerArrivalHelp() {
+    routeOffer.current = null
     const current = arrivalRef.current
     const store = current?.store ?? active?.store ?? selected
     if (!store) return say('먼저 안내받을 가게를 선택해 주세요.')
@@ -425,6 +442,14 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     }
     command = normalizeVoiceCommand(command)
     if (!command) return say('네, 말씀하세요.')
+    conversation.current = [...conversation.current, { role: 'user' as const, text: command }].slice(-8)
+    const offered = routeOffer.current
+    const consent = spokenConsent(command)
+    if (offered && consent) {
+      routeOffer.current = null
+      if (consent === 'accept') return begin(offered.store, offered.search)
+      return say('길 안내는 시작하지 않을게요. 다른 음식이나 조건을 말씀해 주세요.')
+    }
     const entryRequest = arrivalCommand(command, arrivalRef.current?.stage === 'help-offered')
     if (entryRequest === 'accept-call') return prepareArrivalCall()
     if (entryRequest === 'help' && (arrivalRef.current || active)) return offerArrivalHelp()
@@ -435,11 +460,13 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     }
 
     if (/^(음성\s*모드\s*(꺼|종료)|듣기\s*(종료|그만))[.!\s]*$/.test(command)) {
+      routeOffer.current = null
       voiceManuallyStopped.current = true
       handsFree.stop()
       return say('음성 모드를 껐어요.')
     }
     if (/^(안내\s*(종료|그만|취소)|길\s*안내\s*종료)[.!\s]*$/.test(command)) {
+      routeOffer.current = null
       pending.current?.abort()
       setBusy(false)
       setActive(null)
@@ -492,6 +519,10 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
             hasProposal: Boolean(proposal),
             previousSearch: active?.search ?? query.current,
             facts: facts(),
+            selectedName: selected?.name ?? '',
+            recommendedName: routeOffer.current?.store.name ?? results[resultIndex]?.store.name ?? '',
+            hasRouteOffer: Boolean(routeOffer.current),
+            history: conversation.current,
           }, combineVoiceSignals([signal, voiceTimeoutSignal(12000)]))
           if (interpreted.action !== 'yes' && interpreted.action !== 'no') {
             if (interpreted.query && intent.query?.budget != null) {
@@ -508,6 +539,15 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       }
       if (signal.aborted) return
       if (intent.action === 'reply' && intent.reply) return say(intent.reply)
+      if (intent.action === 'navigate') {
+        const terms = intent.query?.terms.trim()
+        const matches = terms ? stores.filter(store => store.name.includes(terms)) : []
+        const named = terms ? stores.find(store => store.name === terms) ?? (matches.length === 1 ? matches[0] : undefined) : undefined
+        if (!named && matches.length > 1) return say(`비슷한 가게가 여러 곳 있어요. ${matches.slice(0, 3).map(store => store.name).join(', ')} 중 어느 가게로 안내할까요?`)
+        const target = named ?? (!terms ? routeOffer.current?.store ?? results[resultIndex]?.store ?? selected : undefined)
+        if (!target) return say('어느 가게로 안내할까요? 가게 이름을 말씀하시거나 먼저 주변 식당을 찾아 주세요.')
+        return begin(target, routeOffer.current?.search ?? query.current)
+      }
       if (intent.action === 'sign') return explainDestination()
       if (intent.action === 'no') {
         setProposal(null)
@@ -518,6 +558,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
         return say('먼저 가게를 선택하고 도보 안내를 시작해 주세요.')
       }
       if (intent.action === 'search' && intent.query) {
+        routeOffer.current = null
         const search = { ...intent.query, budget: intent.query.budget ?? maximumPrice }
         onBudgetSearch(search.budget)
         setProposal(null)
@@ -578,6 +619,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   }, [routeRequest, selected])
 
   function begin(store: Merchant, search: Query = { terms: '', category: store.category, budget: null }) {
+    routeOffer.current = null
     say(`${store.name}을 선택했어요. 현재 위치를 확인할게요.`)
     void run(async signal => {
       if (!store.coordinates) return say('가게 위치 좌표가 확인되지 않았어요.')
