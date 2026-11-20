@@ -324,7 +324,7 @@ const handleSortChange = async (mode: SortMode) => {
            {selected.naverCuisine && <p>세부 업종 · {selected.naverCuisine}</p>}
            {selected.businessHours?.weekday && <p>평일 · {selected.businessHours.weekday}</p>}
            {selected.businessHours?.saturday && <p>토요일 · {selected.businessHours.saturday}</p>}
-           {selected.businessHours?.sunday && <p>일요일 · {selected.businessHours.sunday}</p>}
+           {selected.businessHours?.holiday && <p>공휴일 · {selected.businessHours.holiday}</p>}
            {selected.under10000 === 'Y' && <span className="under-ten-badge">만원 이하 식사 있음</span>}
          </div>
          <div className="selected-meals">{selected.confirmedMeals?.length ? selected.confirmedMeals.map(meal => <div key={`${meal.name}-${meal.price}`}><span>{meal.name}{meal.preview && <small>후보 가격</small>}</span><strong>{meal.price.toLocaleString()}원</strong></div>) : <p>메뉴·가격은 방문 전 확인해 주세요.</p>}</div>

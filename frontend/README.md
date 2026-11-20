@@ -64,6 +64,7 @@ npm run preview
 | `src/KakaoMap.tsx` | 지도·업종별 마커·군집 |
 | `src/kakao.ts` | 카카오 SDK 로딩·타입 정의 |
 | `src/merchants.ts`, `src/merchantData.ts` | 가맹점 모델·검색 |
+| `src/merchantApi.ts` | 백엔드 `/api/merchants`(메인 테이블 `merchant_crawl_staging`) 응답을 화면 모델로 변환. 영업시간은 평일·토요일·공휴일 |
 | `src/VoiceSearch.tsx`, `src/voiceIntent.ts` | 녹음·음성 검색어 처리 |
 | `src/NearestVoice.tsx` | 현재 위치 기반 도보 거리·음성 안내 |
 | `src/apiUrl.ts` | 환경 변수 기반 API 주소 |

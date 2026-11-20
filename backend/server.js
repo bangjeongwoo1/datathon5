@@ -14,6 +14,7 @@ import {
 } from "./menuOcr.js";
 import { attachUser, requireAdmin, requireAuth } from "./auth.js";
 import { createAdminRouter } from "./adminRoutes.js";
+import { merchantListQueries } from "./merchantList.js";
 import {
   findMerchant,
   isValidMerchantId,
@@ -220,62 +221,14 @@ app.get("/api/merchants", async (req, res) => {
       Number.parseInt(req.query.offset, 10) || 0
     );
 
-    const conditions = [];
-    const params = [];
-
-    if (region) {
-      params.push(region);
-      conditions.push(`region = $${params.length}`);
-    }
-
-    if (search) {
-      params.push(`%${search}%`);
-      conditions.push(`name ILIKE $${params.length}`);
-    }
-
-    const where = conditions.length
-      ? `WHERE ${conditions.join(" AND ")}`
-      : "";
-
-    const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS total
-       FROM public.merchants ${where}`,
-      params
-    );
-
-    const dataResult = await pool.query(
-  `SELECT
-      m.*,
-      n.naver_cuisine,
-      n.naver_classification,
-      n.weekday_open,
-      n.weekday_close,
-      n.saturday_open,
-      n.saturday_close,
-      n.sunday_open,
-      n.sunday_close,
-      n.address_check,
-      n.match_status,
-      s.in_under_10000,
-      s.min_meal_price_won,
-      COALESCE((
-        SELECT jsonb_agg(jsonb_build_object(
-          'name', menu.name, 'price', menu.price_won
-        ) ORDER BY menu.price_won, menu.name)
-        FROM public.menus AS menu
-        WHERE menu.merchant_id = m.merchant_id AND menu.category = 'meal'
-      ), '[]'::jsonb) AS confirmed_meals
-   FROM public.merchants AS m
-   LEFT JOIN public.merchant_naver_info AS n
-     ON m.merchant_id = n.merchant_id
-   LEFT JOIN public.merchant_menu_summary AS s
-     ON m.merchant_id = s.merchant_id
-   ${where}
-   ORDER BY m.merchant_id
-   LIMIT $${params.length + 1}
-   OFFSET $${params.length + 2}`,
-  [...params, limit, offset]
-);
+    const { countSql, countParams, dataSql, dataParams } = merchantListQueries({
+      region,
+      search,
+      limit,
+      offset,
+    });
+    const countResult = await pool.query(countSql, countParams);
+    const dataResult = await pool.query(dataSql, dataParams);
 
     res.json({
       total: countResult.rows[0].total,
@@ -318,8 +271,15 @@ function sniffImageType(buf) {
 }
 
 // 비용 보호용 간단한 호출 제한(서버 재시작 시 초기화되는 메모리 방식)
-const OCR_LIMIT_PER_IP_PER_HOUR = 10;
-const OCR_LIMIT_PER_DAY = 200;
+// 기본은 IP당 시간당 10건, 하루 전체 200건. 데이터를 한꺼번에 넣어 볼 때처럼 잠깐 늘려야 하면
+// .env 에 OCR_LIMIT_PER_IP_PER_HOUR, OCR_LIMIT_PER_DAY 를 적는다. (양의 정수가 아니면 기본값을 쓴다.)
+// 이 한도가 Gemini 비용의 상한이므로, 배포 서버에서는 기본값을 유지하는 것을 권한다.
+function limitFromEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+const ocrLimitPerIpPerHour = () => limitFromEnv("OCR_LIMIT_PER_IP_PER_HOUR", 10);
+const ocrLimitPerDay = () => limitFromEnv("OCR_LIMIT_PER_DAY", 200);
 const ocrHits = new Map(); // ip -> 최근 1시간 요청 시각 목록
 let ocrDay = { date: "", count: 0 };
 
@@ -328,12 +288,12 @@ function checkOcrLimit(ip) {
   const today = new Date(now).toISOString().slice(0, 10);
 
   if (ocrDay.date !== today) ocrDay = { date: today, count: 0 };
-  if (ocrDay.count >= OCR_LIMIT_PER_DAY) {
+  if (ocrDay.count >= ocrLimitPerDay()) {
     return "오늘 처리 가능한 건수를 초과했습니다. 내일 다시 시도해 주세요.";
   }
 
   const recent = (ocrHits.get(ip) || []).filter(t => now - t < 3600_000);
-  if (recent.length >= OCR_LIMIT_PER_IP_PER_HOUR) {
+  if (recent.length >= ocrLimitPerIpPerHour()) {
     return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
   }
 

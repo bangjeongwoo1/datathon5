@@ -45,3 +45,37 @@ test('만원 이하 필터: Y 인 가게만 남기고, N·모름(값 없음)은 
   assert.equal(filterMerchants(items, { query: '', category: '전체' }).length, 3)
   assert.equal(filterMerchants(items, { query: '', category: '전체', underTenOnly: false }).length, 3)
 })
+
+test('영업시간: 평일·토요일·공휴일을 읽고, 값이 없으면 항목을 만들지 않는다', async () => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        total: 2,
+        merchants: [
+          {
+            ...row('2442', '윤수산'),
+            weekday_open: '10:00',
+            weekday_close: '21:00',
+            saturday_open: '10:00',
+            saturday_close: '21:00',
+            holiday_open: '11:00',
+            holiday_close: '20:00',
+          },
+          row('2443', '시간 모름'),
+        ],
+      }),
+    )
+
+  try {
+    const [open, unknown] = await loadRegionMerchants('춘천시')
+    assert.deepEqual(open.businessHours, {
+      weekday: '10:00 ~ 21:00',
+      saturday: '10:00 ~ 21:00',
+      holiday: '11:00 ~ 20:00',
+    })
+    assert.equal(unknown.businessHours, undefined)
+  } finally {
+    globalThis.fetch = original
+  }
+})

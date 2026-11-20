@@ -36,7 +36,7 @@ export type MerchantRecord = {
   businessHours?: {
     weekday?: string
     saturday?: string
-    sunday?: string
+    holiday?: string
   }
 }
 
