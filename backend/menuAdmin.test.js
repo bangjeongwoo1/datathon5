@@ -265,3 +265,35 @@ test('메모가 너무 길면 400', async () => {
   const { db } = fakeDb({ 'FOR UPDATE': pendingRow() });
   await assert.rejects(rejectSubmission(db, 7, { note: 'a'.repeat(501), reviewer: {} }), e => e.status === 400);
 });
+
+test('승인·반려가 끝나면 보관 중이던 사진을 여러 장 모두 지운다', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'menu-admin-multi-'));
+  process.env.MENU_PHOTO_DIR = dir;
+  try {
+    for (const action of ['approve', 'reject']) {
+      const files = [`${action}-1.jpg`, `${action}-2.png`, `${action}-3.webp`];
+      for (const file of files) await fs.writeFile(path.join(dir, file), 'x');
+      const { db, client } = fakeDb({ 'FOR UPDATE': pendingRow({ photo_path: files[0], photo_paths: files }) });
+      if (action === 'approve') {
+        await approveSubmission(db, 7, { items: [{ name: '밥', price_won: 5000, category: 'meal' }], reviewer: {} });
+      } else {
+        await rejectSubmission(db, 7, { reviewer: {} });
+      }
+      for (const file of files) await assert.rejects(fs.access(path.join(dir, file)), `${file} 이 지워져야 한다`);
+      assert.ok(client.calls.some(c => c.sql.includes('photo_paths = NULL')), 'DB 의 사진 목록도 비운다');
+    }
+  } finally {
+    delete process.env.MENU_PHOTO_DIR;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('사진 이름: 몇 번째 사진인지로 고르고, 없는 번호는 null', async () => {
+  const { getPhotoName } = await import('./menuAdmin.js');
+  const { db } = fakeDb({ 'SELECT photo_path, photo_paths': { rows: [{ photo_path: 'a.jpg', photo_paths: ['a.jpg', 'b.png'] }] } });
+  assert.equal(await getPhotoName(db, 7), 'a.jpg');
+  assert.equal(await getPhotoName(db, 7, 1), 'b.png');
+  assert.equal(await getPhotoName(db, 7, 2), null);
+  const old = fakeDb({ 'SELECT photo_path, photo_paths': { rows: [{ photo_path: 'old.jpg', photo_paths: null }] } });
+  assert.equal(await getPhotoName(old.db, 7), 'old.jpg');
+});

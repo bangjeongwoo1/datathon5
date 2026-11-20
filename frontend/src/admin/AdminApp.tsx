@@ -209,8 +209,10 @@ function Review() {
 function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const [detail, setDetail] = useState<SubmissionDetail | null>(null)
   const [drafts, setDrafts] = useState<DraftItem[]>([])
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  // 사진은 최대 5장. 장마다 불러온 주소(실패하면 null)와 지금 크게 보는 사진 번호.
+  const [photoUrls, setPhotoUrls] = useState<(string | null)[]>([])
   const [photoError, setPhotoError] = useState<string | null>(null)
+  const [photoIndex, setPhotoIndex] = useState(0)
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -219,7 +221,7 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
 
   useEffect(() => {
     let active = true
-    let url: string | null = null
+    const urls: string[] = []
     ;(async () => {
       try {
         const token = await getToken()
@@ -227,15 +229,22 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
         if (!active) return
         setDetail(loaded)
         setDrafts(toDrafts(loaded.items))
-        if (loaded.has_photo) {
-          try {
-            const blob = await fetchPhotoBlob(id, { token })
-            if (!active) return
-            url = URL.createObjectURL(blob)
-            setPhotoUrl(url)
-          } catch (photoProblem) {
-            if (active) setPhotoError(messageOf(photoProblem))
-          }
+        const count = loaded.photo_count ?? (loaded.has_photo ? 1 : 0)
+        if (count > 0) {
+          // 장마다 따로 불러온다. 한 장이 실패해도 나머지는 보여 준다.
+          const loadedUrls = await Promise.all(
+            Array.from({ length: count }, async (_, index) => {
+              try {
+                const url = URL.createObjectURL(await fetchPhotoBlob(id, { token }, index))
+                urls.push(url)
+                return url
+              } catch (photoProblem) {
+                if (active) setPhotoError(messageOf(photoProblem))
+                return null
+              }
+            }),
+          )
+          if (active) setPhotoUrls(loadedUrls)
         }
       } catch (loadProblem) {
         if (active) setError(messageOf(loadProblem))
@@ -243,7 +252,7 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
     })()
     return () => {
       active = false
-      if (url) URL.revokeObjectURL(url)
+      for (const url of urls) URL.revokeObjectURL(url)
     }
   }, [id])
 
@@ -302,12 +311,33 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
 
       {pending && (
         <div className="admin-photo">
-          {photoUrl ? (
-            <a href={photoUrl} target="_blank" rel="noreferrer">
-              <img src={photoUrl} alt="제보된 메뉴판 사진" />
+          {photoUrls.length > 1 && (
+            <div className="admin-photo-tabs" role="group" aria-label="메뉴판 사진 고르기">
+              {photoUrls.map((url, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  className={index === photoIndex ? 'on' : ''}
+                  aria-pressed={index === photoIndex}
+                  onClick={() => setPhotoIndex(index)}
+                >
+                  {url ? <img src={url} alt="" /> : null}
+                  <span>사진 {index + 1}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {photoUrls[photoIndex] ? (
+            <a href={photoUrls[photoIndex] as string} target="_blank" rel="noreferrer">
+              <img
+                src={photoUrls[photoIndex] as string}
+                alt={`제보된 메뉴판 사진${photoUrls.length > 1 ? ` ${photoIndex + 1}` : ''}`}
+              />
             </a>
           ) : (
-            <p className="admin-note">{photoError ?? '사진을 불러오는 중…'}</p>
+            <p className="admin-note">
+              {photoError ?? (photoUrls.length ? '이 사진을 불러오지 못했어요.' : '사진을 불러오는 중…')}
+            </p>
           )}
         </div>
       )}
@@ -333,6 +363,11 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
                     onChange={(e) => update(draft.key, { name: e.target.value })}
                   />
                   {draft.uncertain && <span className="tag">확인 필요</span>}
+                  {photoUrls.length > 1 && draft.photo && (
+                    <button type="button" className="photo-tag" onClick={() => setPhotoIndex(draft.photo! - 1)}>
+                      사진 {draft.photo}
+                    </button>
+                  )}
                 </td>
                 <td>
                   <input

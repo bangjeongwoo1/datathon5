@@ -1,7 +1,7 @@
 // 관리자 검수: 대기 중인 메뉴판 제보를 보고 승인(menus 에 반영) 또는 반려한다.
 // 승인하면 그 가게의 기존 메뉴가 전부 이 제보의 메뉴로 교체된다.
 import { MAX_PRICE_WON, MENU_CATEGORIES, MIN_PRICE_WON } from './menuPrice.js';
-import { deletePhoto } from './menuSubmissions.js';
+import { deletePhotos, photoNamesOf } from './menuSubmissions.js';
 
 export class AdminError extends Error {
   constructor(status, message) {
@@ -98,7 +98,7 @@ export async function getSubmission(db, submissionId) {
   const result = await db.query(
     `SELECT submission_id, merchant_id, merchant_name, merchant_address, submitted_email,
             status, has_uncertain, jsonb_array_length(items) AS item_count,
-            created_at, reviewed_at, items, rejected, model, photo_path, review_note
+            created_at, reviewed_at, items, rejected, model, photo_path, photo_paths, review_note
        FROM public.menu_submissions WHERE submission_id = $1`,
     [submissionId]
   );
@@ -117,7 +117,8 @@ export async function getSubmission(db, submissionId) {
     items: row.items,
     rejected: row.rejected,
     model: row.model,
-    has_photo: Boolean(row.photo_path),
+    has_photo: photoNamesOf(row).length > 0,
+    photo_count: photoNamesOf(row).length, // 보관 중인 사진 장수(승인·반려 후에는 0)
     review_note: row.review_note,
     current_menus: current.rows.map(menu => ({
       name: menu.name,
@@ -127,13 +128,13 @@ export async function getSubmission(db, submissionId) {
   };
 }
 
-/** 사진 파일 이름. 제보가 없거나 사진이 이미 지워졌으면 null. */
-export async function getPhotoName(db, submissionId) {
+/** index 번째(0부터) 사진 파일 이름. 제보가 없거나, 그 사진이 없거나, 이미 지워졌으면 null. */
+export async function getPhotoName(db, submissionId, index = 0) {
   const result = await db.query(
-    'SELECT photo_path FROM public.menu_submissions WHERE submission_id = $1',
+    'SELECT photo_path, photo_paths FROM public.menu_submissions WHERE submission_id = $1',
     [submissionId]
   );
-  return result.rows[0]?.photo_path ?? null;
+  return photoNamesOf(result.rows[0])[index] ?? null;
 }
 
 async function withTransaction(db, work) {
@@ -153,7 +154,7 @@ async function withTransaction(db, work) {
 
 async function lockPending(client, submissionId) {
   const found = await client.query(
-    `SELECT submission_id, merchant_id, status, items, photo_path
+    `SELECT submission_id, merchant_id, status, items, photo_path, photo_paths
        FROM public.menu_submissions WHERE submission_id = $1 FOR UPDATE`,
     [submissionId]
   );
@@ -257,15 +258,15 @@ export async function approveSubmission(db, submissionId, { items, note, reviewe
     await client.query(
       `UPDATE public.menu_submissions
           SET status = 'approved', reviewed_by = $2, reviewed_at = now(), review_note = $3,
-              photo_path = NULL
+              photo_path = NULL, photo_paths = NULL
         WHERE submission_id = $1`,
       [submissionId, reviewer?.id ?? null, reviewNote]
     );
-    return { merchantId, photoPath: submission.photo_path, total, added, updated, removed };
+    return { merchantId, photoNames: photoNamesOf(submission), total, added, updated, removed };
   });
 
   // 사진은 DB 에 반영된 뒤에 지운다. 지우기에 실패해도 승인 결과는 유지한다.
-  await deletePhoto(row.photoPath).catch(error =>
+  await deletePhotos(row.photoNames).catch(error =>
     console.error('승인 후 사진 삭제 실패:', error.message)
   );
   return {
@@ -289,14 +290,14 @@ export async function rejectSubmission(db, submissionId, { note, reviewer }) {
     await client.query(
       `UPDATE public.menu_submissions
           SET status = 'rejected', reviewed_by = $2, reviewed_at = now(), review_note = $3,
-              photo_path = NULL
+              photo_path = NULL, photo_paths = NULL
         WHERE submission_id = $1`,
       [submissionId, reviewer?.id ?? null, reviewNote]
     );
     return submission;
   });
 
-  await deletePhoto(row.photo_path).catch(error =>
+  await deletePhotos(photoNamesOf(row)).catch(error =>
     console.error('반려 후 사진 삭제 실패:', error.message)
   );
   return { submission_id: submissionId, status: 'rejected', merchant_id: row.merchant_id };

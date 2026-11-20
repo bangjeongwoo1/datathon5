@@ -11,6 +11,7 @@ export type DraftItem = {
   price: string // 입력창 값 그대로(숫자만 남기지는 않는다)
   category: MenuCategory
   uncertain: boolean // AI가 확신하지 못한 항목: 사람이 꼭 눈으로 확인해야 한다.
+  photo?: number // 몇 번째 사진(1부터)에서 읽었는지. 사진이 여러 장일 때 화면에 표시한다.
 }
 
 export type ApprovedItem = { name: string; price_won: number; category: Exclude<MenuCategory, 'unknown'> }
@@ -25,6 +26,7 @@ export function toDrafts(items: SubmittedItem[]): DraftItem[] {
     price: String(item.price_won),
     category: item.category,
     uncertain: item.status === 'uncertain',
+    ...(item.photo ? { photo: item.photo } : {}),
   }))
 }
 

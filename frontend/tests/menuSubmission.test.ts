@@ -44,7 +44,7 @@ test('가격·분류 표시 형식', () => {
   assert.equal(categoryLabel('unknown'), '미분류')
 })
 
-test('제보 전송: 가게 번호를 주소에 넣고 사진을 image 필드로 보낸다', async () => {
+test('제보 전송: 가게 번호를 주소에 넣고, 한 장(file)도 images 필드로 보낸다', async () => {
   let call: { url: string; init: RequestInit } | undefined
   const result = await submitMenuPhoto({
     merchantId: '12',
@@ -60,7 +60,9 @@ test('제보 전송: 가게 번호를 주소에 넣고 사진을 image 필드로
   assert.equal(call?.url, 'http://localhost:3001/api/merchants/12/menu-submissions')
   assert.equal(call?.init.method, 'POST')
   assert.ok(call?.init.body instanceof FormData)
-  assert.ok((call?.init.body as FormData).get('image') instanceof Blob)
+  const sent = (call?.init.body as FormData).getAll('images')
+  assert.equal(sent.length, 1)
+  assert.ok(sent[0] instanceof Blob)
   // 로그인하지 않았으면 인증 헤더를 보내지 않는다.
   assert.equal((call?.init.headers as Record<string, string>).Authorization, undefined)
 })
@@ -154,4 +156,51 @@ test('제보 전송: 호출한 쪽이 취소하면 오류 문구로 바꾸지 �
   await assert.rejects(pending, (error: unknown) => {
     return !(error instanceof MenuSubmissionError) && (error as Error).name === 'AbortError'
   })
+})
+
+test('제보 전송(여러 장): 고른 순서대로 images 필드에 모두 담는다', async () => {
+  const { submitMenuPhoto: submit } = await import('../src/menuSubmission.ts')
+  let body: FormData | null = null
+  await submit({
+    merchantId: '12',
+    files: [photo(), photo(), photo()],
+    fetchImpl: async (_url, init) => {
+      body = init?.body as FormData
+      return jsonResponse({ ...OK_RESULT, photo_count: 3 }, 201)
+    },
+  })
+  assert.equal(body!.getAll('images').length, 3)
+  assert.equal(body!.get('image'), null)
+})
+
+test('제보 전송(여러 장): 사진이 없거나 5장을 넘으면 서버에 보내지 않고 바로 알려 준다', async () => {
+  const { submitMenuPhoto: submit } = await import('../src/menuSubmission.ts')
+  let called = false
+  const fetchImpl = async () => { called = true; return jsonResponse(OK_RESULT, 201) }
+  await assert.rejects(submit({ merchantId: '12', files: [], fetchImpl }), /사진을 골라/)
+  await assert.rejects(submit({ merchantId: '12', files: Array.from({ length: 6 }, photo), fetchImpl }), /최대 5장/)
+  assert.equal(called, false)
+})
+
+test('사진 고르기: 형식이 틀린 사진·이미 고른 사진은 빼고, 5장을 넘으면 앞의 5장만 남긴다', async () => {
+  const { addPhotos, MAX_PHOTOS } = await import('../src/menuSubmission.ts')
+  const f = (name: string, type = 'image/jpeg', size = 1000) => ({ name, type, size, lastModified: 1 })
+  const first = addPhotos([], [f('a.jpg'), f('b.gif', 'image/gif'), f('c.png', 'image/png')])
+  assert.deepEqual(first.files.map(x => x.name), ['a.jpg', 'c.png'])
+  assert.match(first.error ?? '', /b.gif/)
+
+  const again = addPhotos(first.files, [f('a.jpg')]) // 같은 사진을 또 고름
+  assert.deepEqual(again.files.map(x => x.name), ['a.jpg', 'c.png'])
+  assert.equal(again.error, null)
+
+  const many = addPhotos(first.files, [f('d.jpg'), f('e.jpg'), f('g.jpg'), f('h.jpg')])
+  assert.equal(many.files.length, MAX_PHOTOS)
+  assert.deepEqual(many.files.map(x => x.name), ['a.jpg', 'c.png', 'd.jpg', 'e.jpg', 'g.jpg'])
+  assert.match(many.error ?? '', /최대 5장/)
+})
+
+test('기다리는 시간: 사진이 많을수록 넉넉하게 기다린다', async () => {
+  const { submitTimeoutMs } = await import('../src/menuSubmission.ts')
+  assert.equal(submitTimeoutMs(1), 90_000)
+  assert.equal(submitTimeoutMs(5), 270_000)
 })

@@ -12,6 +12,7 @@ import {
   rejectSubmission,
 } from './menuAdmin.js';
 import { photoDir } from './menuSubmissions.js';
+import { MAX_MENU_PHOTOS } from './menuPhotoBatch.js';
 
 const PHOTO_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
@@ -54,19 +55,31 @@ export function createAdminRouter({ db }) {
   );
 
   // 원본 사진. 관리자만 볼 수 있고 브라우저에 저장(캐시)되지 않게 한다.
+  async function sendPhoto(req, res, index) {
+    const name = await getPhotoName(db, parseSubmissionId(req.params.id), index);
+    if (!name) throw new AdminError(404, '보관 중인 사진이 없습니다.');
+
+    const safeName = path.basename(name);
+    const type = PHOTO_TYPES[path.extname(safeName).slice(1)];
+    const file = path.join(photoDir(), safeName);
+    if (!type || !fs.existsSync(file)) throw new AdminError(404, '사진 파일을 찾을 수 없습니다.');
+
+    res.set({ 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.sendFile(file);
+  }
+
+  // 첫 번째 사진 (예전 주소, 그대로 둔다)
+  router.get('/submissions/:id/photo', handle((req, res) => sendPhoto(req, res, 0)));
+
+  // index 번째 사진(0부터). 한 제보에 사진이 최대 5장이다.
   router.get(
-    '/submissions/:id/photo',
-    handle(async (req, res) => {
-      const name = await getPhotoName(db, parseSubmissionId(req.params.id));
-      if (!name) throw new AdminError(404, '보관 중인 사진이 없습니다.');
-
-      const safeName = path.basename(name);
-      const type = PHOTO_TYPES[path.extname(safeName).slice(1)];
-      const file = path.join(photoDir(), safeName);
-      if (!type || !fs.existsSync(file)) throw new AdminError(404, '사진 파일을 찾을 수 없습니다.');
-
-      res.set({ 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-      res.sendFile(file);
+    '/submissions/:id/photos/:index',
+    handle((req, res) => {
+      const index = Number(req.params.index);
+      if (!/^[0-9]$/.test(req.params.index) || index >= MAX_MENU_PHOTOS) {
+        throw new AdminError(400, '사진 번호가 올바르지 않습니다.');
+      }
+      return sendPhoto(req, res, index);
     })
   );
 

@@ -146,3 +146,22 @@ test('API: 승인할 때 승인 방식(mode)을 함께 보낸다', async () => {
   await approveSubmission(3, { items: [{ name: '라면', price_won: 4000, category: 'meal' }], mode: 'merge' }, { token: 't', fetchImpl })
   assert.deepEqual(body, { items: [{ name: '라면', price_won: 4000, category: 'meal' }], mode: 'merge' })
 })
+
+test('사진이 여러 장이면 메뉴 줄에 몇 번째 사진에서 읽었는지 남긴다', () => {
+  const [a, b] = toDrafts([
+    { name: '김치찌개', price_won: 9000, price_text: '9,000', category: 'meal', status: 'ok', photo: 2 },
+    { name: '공기밥', price_won: 1000, price_text: '1,000', category: 'side', status: 'ok' },
+  ])
+  assert.equal(a.photo, 2)
+  assert.equal(b.photo, undefined)
+})
+
+test('API: 사진은 번호(0부터)로 따로 불러온다', async () => {
+  const { fetchPhotoBlob } = await import('../src/adminApi.ts')
+  const urls: string[] = []
+  const fetchImpl = (async (url: string) => { urls.push(url); return new Response(new Blob(['x'])) }) as unknown as typeof fetch
+  await fetchPhotoBlob(7, { token: 't', fetchImpl })
+  await fetchPhotoBlob(7, { token: 't', fetchImpl }, 3)
+  assert.match(urls[0], /\/api\/admin\/submissions\/7\/photos\/0$/)
+  assert.match(urls[1], /\/api\/admin\/submissions\/7\/photos\/3$/)
+})

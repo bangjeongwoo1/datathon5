@@ -15,6 +15,7 @@ import {
 import { attachUser, requireAdmin, requireAuth } from "./auth.js";
 import { createAdminRouter } from "./adminRoutes.js";
 import { merchantListQueries } from "./merchantList.js";
+import { MAX_MENU_PHOTOS, extractMenusFromPhotos } from "./menuPhotoBatch.js";
 import {
   findMerchant,
   isValidMerchantId,
@@ -247,10 +248,14 @@ app.get("/api/merchants", async (req, res) => {
 
 // ---- 메뉴판 사진 OCR (Gemini) ----
 
+// 사진은 한 번에 최대 5장(images 필드). 예전처럼 image 필드로 한 장만 보내도 받는다.
 const menuImageUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-}).single("image");
+  limits: { fileSize: 5 * 1024 * 1024, files: MAX_MENU_PHOTOS },
+}).fields([
+  { name: "images", maxCount: MAX_MENU_PHOTOS },
+  { name: "image", maxCount: 1 },
+]);
 
 // 파일 앞부분(매직 바이트)으로 실제 이미지 형식을 확인한다.
 function sniffImageType(buf) {
@@ -283,23 +288,24 @@ const ocrLimitPerDay = () => limitFromEnv("OCR_LIMIT_PER_DAY", 200);
 const ocrHits = new Map(); // ip -> 최근 1시간 요청 시각 목록
 let ocrDay = { date: "", count: 0 };
 
-function checkOcrLimit(ip) {
+// 사진 한 장이 AI 호출 한 번이므로, 여러 장이면 장수만큼 센다.
+function checkOcrLimit(ip, count = 1) {
   const now = Date.now();
   const today = new Date(now).toISOString().slice(0, 10);
 
   if (ocrDay.date !== today) ocrDay = { date: today, count: 0 };
-  if (ocrDay.count >= ocrLimitPerDay()) {
+  if (ocrDay.count + count > ocrLimitPerDay()) {
     return "오늘 처리 가능한 건수를 초과했습니다. 내일 다시 시도해 주세요.";
   }
 
   const recent = (ocrHits.get(ip) || []).filter(t => now - t < 3600_000);
-  if (recent.length >= ocrLimitPerIpPerHour()) {
+  if (recent.length + count > ocrLimitPerIpPerHour()) {
     return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
   }
 
-  recent.push(now);
+  for (let i = 0; i < count; i += 1) recent.push(now);
   ocrHits.set(ip, recent);
-  ocrDay.count += 1;
+  ocrDay.count += count;
   return null;
 }
 
@@ -312,30 +318,41 @@ function requireGemini(req, res, next) {
   next();
 }
 
-// 사진 업로드를 받고 용량·형식을 확인한다. 통과하면 req.menuImage = { buffer, mimeType }
-function parseMenuImage(req, res, next) {
+// 사진 업로드를 받고 장수·용량·형식을 확인한다. 통과하면 req.menuImages = [{ buffer, mimeType }] (올린 순서)
+function parseMenuImages(req, res, next) {
   menuImageUpload(req, res, uploadError => {
     if (uploadError) {
+      const tooMany = uploadError.code === "LIMIT_FILE_COUNT" || uploadError.code === "LIMIT_UNEXPECTED_FILE";
       const tooLarge = uploadError.code === "LIMIT_FILE_SIZE";
       return res.status(400).json({
-        error: tooLarge
-          ? "사진 용량은 5MB 이하여야 합니다."
-          : "사진 업로드 중 오류가 발생했습니다.",
+        error: tooMany
+          ? `사진은 한 번에 최대 ${MAX_MENU_PHOTOS}장까지 올릴 수 있습니다.`
+          : tooLarge
+            ? "사진 한 장의 용량은 5MB 이하여야 합니다."
+            : "사진 업로드 중 오류가 발생했습니다.",
       });
     }
 
-    if (!req.file) {
+    const files = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
+    if (files.length === 0) {
       return res.status(400).json({ error: "메뉴판 사진이 없습니다." });
     }
-
-    const mimeType = sniffImageType(req.file.buffer);
-    if (!mimeType) {
-      return res.status(400).json({
-        error: "JPG, PNG, WEBP 형식의 사진만 올릴 수 있습니다.",
-      });
+    if (files.length > MAX_MENU_PHOTOS) {
+      return res.status(400).json({ error: `사진은 한 번에 최대 ${MAX_MENU_PHOTOS}장까지 올릴 수 있습니다.` });
     }
 
-    req.menuImage = { buffer: req.file.buffer, mimeType };
+    const images = [];
+    for (const [index, file] of files.entries()) {
+      const mimeType = sniffImageType(file.buffer);
+      if (!mimeType) {
+        return res.status(400).json({
+          error: `${files.length > 1 ? `${index + 1}번째 사진: ` : ""}JPG, PNG, WEBP 형식의 사진만 올릴 수 있습니다.`,
+        });
+      }
+      images.push({ buffer: file.buffer, mimeType });
+    }
+
+    req.menuImages = images;
     next();
   });
 }
@@ -349,15 +366,14 @@ function sendMenuError(res, error, label) {
 }
 
 // 분석 결과만 돌려준다(저장하지 않음). 시험·미리보기용
-app.post("/api/menu-ocr", requireGemini, parseMenuImage, async (req, res) => {
-  const limited = checkOcrLimit(req.ip);
+app.post("/api/menu-ocr", requireGemini, parseMenuImages, async (req, res) => {
+  const limited = checkOcrLimit(req.ip, req.menuImages.length);
   if (limited) {
     return res.status(429).json({ error: limited });
   }
 
   try {
-    const { buffer, mimeType } = req.menuImage;
-    res.json(await extractMenuFromImage(buffer, mimeType));
+    res.json(await extractMenusFromPhotos(req.menuImages, extractMenuFromImage));
   } catch (error) {
     sendMenuError(res, error, "메뉴 OCR 오류");
   }
@@ -369,7 +385,7 @@ app.post(
   "/api/merchants/:merchantId/menu-submissions",
   requireGemini,
   attachUser, // 로그인했으면 제출자(req.user)를 기록한다. 로그인하지 않아도 막지 않는다.
-  parseMenuImage,
+  parseMenuImages,
   async (req, res) => {
     const { merchantId } = req.params;
 
@@ -384,13 +400,14 @@ app.post(
         return res.status(404).json({ error: "가맹점을 찾을 수 없습니다." });
       }
 
-      const limited = checkOcrLimit(req.ip);
+      const photos = req.menuImages;
+      const limited = checkOcrLimit(req.ip, photos.length);
       if (limited) {
         return res.status(429).json({ error: limited });
       }
 
-      const { buffer, mimeType } = req.menuImage;
-      const ocr = await extractMenuFromImage(buffer, mimeType);
+      // 사진을 한 장씩 AI 에 보내고 결과를 합친다. 한 장이라도 실패하면 저장하지 않는다.
+      const ocr = await extractMenusFromPhotos(photos, extractMenuFromImage);
 
       if (ocr.items.length === 0) {
         return res.status(422).json({
@@ -402,8 +419,7 @@ app.post(
       const submission = await submitMenuPhoto(pool, {
         merchantId,
         merchant, // 제출 당시의 가게 이름·주소를 함께 저장한다.
-        buffer,
-        mimeType,
+        photos,
         ocr,
         user: req.user, // 로그인 기능이 붙으면 채워진다.
       });

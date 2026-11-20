@@ -73,3 +73,27 @@ test('사진: 형식에 맞는 헤더로 내려주고, 없으면 404, 경로 조
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('사진 여러 장: 번호로 골라 보고, 범위를 벗어나거나 숫자가 아니면 400, 없는 장은 404', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'admin-photos-'));
+  process.env.MENU_PHOTO_DIR = dir;
+  try {
+    await fs.writeFile(path.join(dir, 'p1.png'), Buffer.from([137, 80, 78, 71]));
+    await fs.writeFile(path.join(dir, 'p2.jpg'), Buffer.from([0xff, 0xd8, 0xff]));
+    await withServer({ photo: [{ photo_path: 'p1.png', photo_paths: ['p1.png', 'p2.jpg'] }] }, async base => {
+      const first = await fetch(`${base}/submissions/1/photos/0`);
+      assert.equal(first.headers.get('content-type'), 'image/png');
+      const second = await fetch(`${base}/submissions/1/photos/1`);
+      assert.equal(second.status, 200);
+      assert.equal(second.headers.get('content-type'), 'image/jpeg');
+      assert.equal((await fetch(`${base}/submissions/1/photo`)).headers.get('content-type'), 'image/png'); // 예전 주소 = 첫 장
+      assert.equal((await fetch(`${base}/submissions/1/photos/2`)).status, 404);
+      for (const bad of ['5', '9', '-1', 'a', '01', '1.5']) {
+        assert.equal((await fetch(`${base}/submissions/1/photos/${bad}`)).status, 400, bad);
+      }
+    });
+  } finally {
+    delete process.env.MENU_PHOTO_DIR;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
