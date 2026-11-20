@@ -1,3 +1,4 @@
+import { combineVoiceSignals, voiceTimeoutSignal } from './voiceTransport.ts'
 import { apiUrl } from './apiUrl.ts'
 
 export function createGuideSpeech(
@@ -135,7 +136,7 @@ export function createGuideSpeech(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
-          signal: AbortSignal.any([request.signal, AbortSignal.timeout(10000)]),
+          signal: combineVoiceSignals([request.signal, voiceTimeoutSignal(10000)]),
         })
         if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/mpeg')) {
           throw new Error('Cloud speech unavailable')
