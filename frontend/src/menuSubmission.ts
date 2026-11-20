@@ -60,7 +60,7 @@ export function categoryLabel(category: MenuCategory): string {
     case 'meal':
       return '식사'
     case 'side':
-      return '곁들임'
+      return '사이드'
     case 'drink':
       return '음료'
     case 'alcohol':

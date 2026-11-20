@@ -5,7 +5,7 @@ export const MIN_PRICE_WON = 500;
 export const MAX_PRICE_WON = 100000;
 const MAX_NAME_LENGTH = 60;
 
-// meal: 한 끼 식사, side: 곁들임(공기밥·사리 등), drink: 음료, alcohol: 주류
+// meal: 한 끼 식사, side: 사이드(공기밥·사리 등), drink: 음료, alcohol: 주류
 // "만원 이하 메뉴" 필터는 meal만 기준으로 한다.
 export const MENU_CATEGORIES = ['meal', 'side', 'drink', 'alcohol'];
 

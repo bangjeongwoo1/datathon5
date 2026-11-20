@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS public.menus (
 
   name          TEXT NOT NULL,
   price_won     INTEGER NOT NULL CHECK (price_won BETWEEN 500 AND 100000),
-  -- meal: 한 끼 식사, side: 곁들임, drink: 음료, alcohol: 주류
+  -- meal: 한 끼 식사, side: 사이드, drink: 음료, alcohol: 주류
   category      TEXT NOT NULL CHECK (category IN ('meal', 'side', 'drink', 'alcohol')),
 
   verified_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()

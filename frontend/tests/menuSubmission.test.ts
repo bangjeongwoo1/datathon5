@@ -38,7 +38,7 @@ test('가격·분류 표시 형식', () => {
   assert.equal(formatWon(9000), '9,000원')
   assert.equal(formatWon(10000), '10,000원')
   assert.equal(categoryLabel('meal'), '식사')
-  assert.equal(categoryLabel('side'), '곁들임')
+  assert.equal(categoryLabel('side'), '사이드')
   assert.equal(categoryLabel('drink'), '음료')
   assert.equal(categoryLabel('alcohol'), '주류')
   assert.equal(categoryLabel('unknown'), '미분류')
