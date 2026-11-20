@@ -22,7 +22,7 @@ node server.js
 | 이름 | 용도 |
 |---|---|
 | GROQ_API_KEY | 기존 STT 및 자연어 해석·답변 |
-| GUIDE_TEXT_MODEL | 계정에서 사용 가능한 Groq 텍스트 모델. 누락하면 새 AI API는 503 |
+| GUIDE_TEXT_MODEL | 선택. 미설정·빈 값이면 `qwen/qwen3.8-27b` 사용. 운영자가 지정한 모델은 그대로 유지 |
 | TMAP_APP_KEY | 기존 거리 비교와 새 보행 경로 조회 |
 | GUIDE_GOOGLE_TTS_ENABLED | `true`로 설정해야 음성 생성 활성화 |
 | GOOGLE_TTS_API_KEY | Google Cloud Text-to-Speech API 키 |
@@ -74,7 +74,7 @@ search에는 `query:{terms,category,budget}`가 포함되고 reply에는 `reply`
 입력 `{text, facts:[{name,address,category,meals:[{name,price,preview}]}], selectedName?}`.
 응답 `{reply}`. facts는 클라이언트가 전달한 조회 자료로서 이 API에서 DB 원본과 대조하지 않는다. 제공되지 않은 메뉴·가격·영업·안전 정보를 추측하지 않도록 지시한다.
 
-AI API는 키/모델 누락 503, 잘못된 입력 400, 공급자 오류·응답 형식 오류 502, 요청 한도 초과 429로 구분한다. 모델 요청은 회당 5초이며 일시적 서버/연결 오류와 응답 형식 오류만 최대 한 번 재시도한다. 인증 실패와 한도 초과는 재시도하지 않는다. 지원하는 Qwen 3.8/GPT-OSS 모델에는 strict JSON schema를 사용한다. 오류 응답은 AI_NOT_CONFIGURED / AI_AUTH_FAILED / AI_RATE_LIMITED / AI_INVALID_RESPONSE / AI_UNAVAILABLE로 구분하며 공급자 원문·키·사용자 발화는 로그에 출력하지 않는다. 호출어 처리·가게 선택·사용자 동의 판정은 프론트에서 명시적으로 처리한다.
+AI API는 AI 클라이언트 누락 503, 잘못된 입력 400, 공급자 오류·응답 형식 오류 502, 요청 한도 초과 429로 구분한다. 모델 요청은 회당 5초이며 일시적 서버/연결 오류와 응답 형식 오류만 최대 한 번 재시도한다. 인증 실패와 한도 초과는 재시도하지 않는다. 지원하는 Qwen 3.8/GPT-OSS 모델에는 strict JSON schema를 사용한다. 오류 응답은 AI_NOT_CONFIGURED / AI_AUTH_FAILED / AI_RATE_LIMITED / AI_INVALID_RESPONSE / AI_UNAVAILABLE로 구분하며 공급자 원문·키·사용자 발화는 로그에 출력하지 않는다. 호출어 처리·가게 선택·사용자 동의 판정은 프론트에서 명시적으로 처리한다.
 
 ## 프론트엔드 연결
 
