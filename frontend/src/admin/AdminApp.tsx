@@ -15,9 +15,12 @@ import {
 import {
   buildApproval,
   emptyDraft,
+  previewApproval,
   previewUnder10000,
   toDrafts,
   validateDraft,
+  type ApproveMode,
+  type ApprovedItem,
   type DraftItem,
 } from '../adminItems.ts'
 import { categoryLabel, type MenuCategory } from '../menuSubmission.ts'
@@ -211,6 +214,8 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // 기본은 "기존 메뉴에 추가": 메뉴판이 여러 장인 가게에서 앞서 승인한 메뉴가 지워지지 않게 한다.
+  const [mode, setMode] = useState<ApproveMode>('merge')
 
   useEffect(() => {
     let active = true
@@ -246,16 +251,23 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   if (!detail) return <p className="admin-note">불러오는 중…</p>
 
   const pending = detail.status === 'pending'
+  const currentMenus = detail.current_menus ?? []
   const built = buildApproval(drafts)
-  const preview = built.ok ? previewUnder10000(built.items) : null
+  const result = built.ok ? previewApproval(currentMenus, built.items, mode) : null
+  const preview = result ? previewUnder10000(result.items as ApprovedItem[]) : null
+  const storeName = detail.merchant_name ?? detail.merchant_id
   const update = (key: number, patch: Partial<DraftItem>) =>
     setDrafts((current) => current.map((d) => (d.key === key ? { ...d, ...patch } : d)))
 
   const act = async (kind: 'approve' | 'reject') => {
     setError(null)
     if (kind === 'approve') {
-      if (!built.ok) return setError(built.error)
-      if (!window.confirm(`"${detail.merchant_name ?? detail.merchant_id}"의 메뉴를 이 ${built.items.length}개로 교체합니다. 승인할까요?`)) return
+      if (!built.ok || !result) return setError(built.ok ? '승인할 메뉴를 확인해 주세요.' : built.error)
+      const question =
+        mode === 'merge'
+          ? `"${storeName}"에 메뉴를 추가합니다. 새 메뉴 ${result.added}개, 가격·분류가 바뀌는 메뉴 ${result.updated}개, 그대로 남는 메뉴 ${result.kept}개 → 총 ${result.items.length}개. 승인할까요?`
+          : `"${storeName}"의 기존 메뉴 ${result.removed}개를 모두 지우고 이 ${result.items.length}개로 교체합니다. 승인할까요?`
+      if (!window.confirm(question)) return
     } else if (!window.confirm('이 제보를 반려할까요?')) {
       return
     }
@@ -263,7 +275,7 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
     try {
       const token = await getToken()
       if (kind === 'approve' && built.ok) {
-        await approveSubmission(id, { items: built.items, note }, { token })
+        await approveSubmission(id, { items: built.items, note, mode }, { token })
       } else {
         await rejectSubmission(id, { note }, { token })
       }
@@ -373,10 +385,41 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
       {pending && (
         <>
           <button onClick={() => setDrafts((cur) => [...cur, emptyDraft()])}>+ 메뉴 추가</button>
+
+          <details className="admin-current" open={currentMenus.length > 0 && currentMenus.length <= 12}>
+            <summary>지금 이 가게에 등록된 메뉴 {currentMenus.length}개</summary>
+            {currentMenus.length === 0 ? (
+              <p className="admin-note">아직 승인된 메뉴가 없어요.</p>
+            ) : (
+              <ul>
+                {currentMenus.map((menu) => (
+                  <li key={`${menu.name}-${menu.price_won}`}>
+                    {menu.name} · {menu.price_won.toLocaleString('ko-KR')}원 · {categoryLabel(menu.category as MenuCategory)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+
+          <fieldset className="admin-mode">
+            <legend>승인 방식</legend>
+            <label>
+              <input type="radio" name={`mode-${id}`} checked={mode === 'merge'} onChange={() => setMode('merge')} />
+              <span><strong>기존 메뉴에 추가</strong> — 이름이 같은 메뉴는 새 가격·분류로 바꾸고, 나머지 기존 메뉴는 그대로 둬요. (메뉴판이 여러 장일 때)</span>
+            </label>
+            <label>
+              <input type="radio" name={`mode-${id}`} checked={mode === 'replace'} onChange={() => setMode('replace')} />
+              <span><strong>통째로 교체</strong> — 기존 메뉴를 모두 지우고 위 목록만 남겨요. (메뉴판이 새로 바뀌었을 때)</span>
+            </label>
+          </fieldset>
+
           <p className="admin-note">
-            승인하면 이 가게의 기존 메뉴가 위 목록으로 <strong>통째로 교체</strong>돼요.
+            {result &&
+              (mode === 'merge'
+                ? `승인하면 새 메뉴 ${result.added}개 추가, ${result.updated}개 가격·분류 갱신, 기존 ${result.kept}개 유지 → 총 ${result.items.length}개가 돼요.`
+                : `승인하면 기존 메뉴 ${result.removed}개가 지워지고 ${result.items.length}개만 남아요.`)}
             {preview && ` (만원 이하 식사: ${preview === 'Y' ? '있음' : '없음'})`}
-            {built.ok && !preview && ' (식사 메뉴가 없어 만원 이하 여부는 "모름"으로 남아요)'}
+            {result && !preview && ' (식사 메뉴가 없어 만원 이하 여부는 "모름"으로 남아요)'}
           </p>
           <textarea
             className="admin-memo"

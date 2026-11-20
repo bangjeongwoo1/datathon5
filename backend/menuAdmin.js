@@ -104,6 +104,14 @@ export async function getSubmission(db, submissionId) {
   );
   const row = result.rows[0];
   if (!row) return null;
+
+  // 승인 전에 "지금 이 가게에 등록된 메뉴"를 같이 보여 주기 위해 함께 돌려준다.
+  const current = await db.query(
+    `SELECT name, price_won, category FROM public.menus
+      WHERE merchant_id = $1 ORDER BY category, price_won, name`,
+    [row.merchant_id]
+  );
+
   return {
     ...toSummary(row),
     items: row.items,
@@ -111,6 +119,11 @@ export async function getSubmission(db, submissionId) {
     model: row.model,
     has_photo: Boolean(row.photo_path),
     review_note: row.review_note,
+    current_menus: current.rows.map(menu => ({
+      name: menu.name,
+      price_won: Number(menu.price_won),
+      category: menu.category,
+    })),
   };
 }
 
@@ -152,31 +165,95 @@ async function lockPending(client, submissionId) {
   return row;
 }
 
+// 승인 방식
+//   merge   : 기존 메뉴에 추가한다. 이름이 같은 메뉴(띄어쓰기·대소문자 무시)는 새 가격·분류로 바꾸고,
+//             이번 목록에 없는 기존 메뉴는 그대로 둔다. 메뉴판이 여러 장인 가게를 위해 기본값이다.
+//   replace : 기존 메뉴를 모두 지우고 이번 목록으로 바꾼다. 메뉴판이 통째로 바뀌었을 때 쓴다.
+export const APPROVE_MODES = ['merge', 'replace'];
+
+/** 같은 메뉴인지 비교하기 위한 이름. 띄어쓰기와 대소문자를 무시한다. */
+export function normalizeMenuName(name) {
+  return String(name).toLowerCase().replace(/\s+/g, '');
+}
+
+// 같은 이름이 목록에 두 번 있으면 마지막 것을 쓴다.
+function dedupeByName(items) {
+  const byName = new Map();
+  for (const item of items) byName.set(normalizeMenuName(item.name), item);
+  return [...byName.values()];
+}
+
+async function insertMenu(client, merchantId, submissionId, item) {
+  await client.query(
+    `INSERT INTO public.menus (merchant_id, submission_id, name, price_won, category, verified_at)
+     VALUES ($1, $2, $3, $4, $5, now())`,
+    [merchantId, submissionId, item.name, item.price_won, item.category]
+  );
+}
+
 /**
  * 제보를 승인한다. items 를 주면 관리자가 고친 목록으로, 안 주면 OCR 결과 중
  * 자동 확인(ok)된 항목만으로 저장한다. 확신 없는(uncertain) 항목은 관리자가 직접 고쳐서 보내야 들어간다.
- * 가게의 기존 메뉴는 모두 지우고 이 목록으로 교체한다.
+ * mode 가 'merge'(기본)면 기존 메뉴에 추가하고, 'replace'면 기존 메뉴를 모두 이 목록으로 바꾼다.
  */
-export async function approveSubmission(db, submissionId, { items, note, reviewer }) {
+export async function approveSubmission(db, submissionId, { items, note, reviewer, mode = 'merge' }) {
   const reviewNote = cleanNote(note);
+  if (!APPROVE_MODES.includes(mode)) {
+    throw new AdminError(400, '승인 방식은 merge(추가) 또는 replace(교체)여야 합니다.');
+  }
 
   const row = await withTransaction(db, async client => {
     const submission = await lockPending(client, submissionId);
+    const merchantId = submission.merchant_id;
 
     const source =
       items !== undefined
         ? items
         : (submission.items ?? []).filter(item => item.status === 'ok');
-    const approved = normalizeApprovedItems(source);
+    const approved = dedupeByName(normalizeApprovedItems(source));
 
-    await client.query('DELETE FROM public.menus WHERE merchant_id = $1', [submission.merchant_id]);
-    for (const item of approved) {
-      await client.query(
-        `INSERT INTO public.menus (merchant_id, submission_id, name, price_won, category, verified_at)
-         VALUES ($1, $2, $3, $4, $5, now())`,
-        [submission.merchant_id, submissionId, item.name, item.price_won, item.category]
+    // 같은 가게의 다른 제보가 동시에 승인되어 메뉴가 엉키지 않도록, 가게 단위로 차례를 세운다.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`menus:${merchantId}`]);
+
+    let added = 0;
+    let updated = 0;
+    let removed = 0;
+    let total = 0;
+
+    if (mode === 'replace') {
+      const deleted = await client.query('DELETE FROM public.menus WHERE merchant_id = $1', [merchantId]);
+      removed = deleted.rowCount ?? 0;
+      for (const item of approved) await insertMenu(client, merchantId, submissionId, item);
+      added = approved.length;
+      total = approved.length;
+    } else {
+      const existing = await client.query(
+        'SELECT menu_id, name FROM public.menus WHERE merchant_id = $1',
+        [merchantId]
       );
+      const idsByName = new Map();
+      for (const menu of existing.rows) {
+        const key = normalizeMenuName(menu.name);
+        idsByName.set(key, [...(idsByName.get(key) ?? []), menu.menu_id]);
+      }
+      for (const item of approved) {
+        const ids = idsByName.get(normalizeMenuName(item.name));
+        if (ids) {
+          await client.query(
+            `UPDATE public.menus
+                SET name = $2, price_won = $3, category = $4, submission_id = $5, verified_at = now()
+              WHERE menu_id = ANY($1::bigint[])`,
+            [ids, item.name, item.price_won, item.category, submissionId]
+          );
+          updated += 1;
+        } else {
+          await insertMenu(client, merchantId, submissionId, item);
+          added += 1;
+        }
+      }
+      total = existing.rows.length + added;
     }
+
     await client.query(
       `UPDATE public.menu_submissions
           SET status = 'approved', reviewed_by = $2, reviewed_at = now(), review_note = $3,
@@ -184,14 +261,23 @@ export async function approveSubmission(db, submissionId, { items, note, reviewe
         WHERE submission_id = $1`,
       [submissionId, reviewer?.id ?? null, reviewNote]
     );
-    return { merchant_id: submission.merchant_id, photo_path: submission.photo_path, count: approved.length };
+    return { merchantId, photoPath: submission.photo_path, total, added, updated, removed };
   });
 
   // 사진은 DB 에 반영된 뒤에 지운다. 지우기에 실패해도 승인 결과는 유지한다.
-  await deletePhoto(row.photo_path).catch(error =>
+  await deletePhoto(row.photoPath).catch(error =>
     console.error('승인 후 사진 삭제 실패:', error.message)
   );
-  return { submission_id: submissionId, status: 'approved', merchant_id: row.merchant_id, menu_count: row.count };
+  return {
+    submission_id: submissionId,
+    status: 'approved',
+    merchant_id: row.merchantId,
+    mode,
+    menu_count: row.total, // 승인 후 이 가게에 등록된 메뉴 수
+    added: row.added,
+    updated: row.updated,
+    removed: row.removed,
+  };
 }
 
 /** 제보를 반려한다. 기존에 승인된 메뉴는 건드리지 않는다. */

@@ -1,7 +1,7 @@
 // 관리자 검수 API 호출. 모든 요청에 로그인 토큰을 붙인다.
 import { apiUrl } from './apiUrl.ts'
 import type { MenuCategory, SubmittedItem } from './menuSubmission.ts'
-import type { ApprovedItem } from './adminItems.ts'
+import type { ApproveMode, ApprovedItem, CurrentMenu } from './adminItems.ts'
 
 export type SubmissionStatus = 'pending' | 'approved' | 'rejected'
 
@@ -24,6 +24,7 @@ export type SubmissionDetail = SubmissionSummary & {
   model: string | null
   has_photo: boolean
   review_note: string | null
+  current_menus: CurrentMenu[] // 지금 이 가게에 등록된(승인된) 메뉴
 }
 
 export type MeInfo = { id: string; email: string; name: string; isAdmin: boolean }
@@ -96,12 +97,20 @@ export async function fetchPhotoBlob(id: number, options: Options): Promise<Blob
 
 export async function approveSubmission(
   id: number,
-  payload: { items: ApprovedItem[]; note?: string },
+  payload: { items: ApprovedItem[]; note?: string; mode: ApproveMode },
   options: Options,
 ) {
   return (await (
     await request(`/api/admin/submissions/${id}/approve`, options, jsonInit(payload))
-  ).json()) as { status: 'approved'; merchant_id: string; menu_count: number }
+  ).json()) as {
+    status: 'approved'
+    merchant_id: string
+    mode: ApproveMode
+    menu_count: number
+    added: number
+    updated: number
+    removed: number
+  }
 }
 
 export async function rejectSubmission(id: number, payload: { note?: string }, options: Options) {

@@ -70,6 +70,7 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 | `naver_cuisine`, `naver_classification`, `address_check` | `Cuisine`, `네이버기반판별`, `주소확인` |
 | `weekday_*`, `saturday_*`, `holiday_*` | 평일·토요일·**공휴일** 영업시간(원본에는 일요일이 없습니다) |
 | `in_under_10000`, `min_meal_price_won`, `confirmed_meals` | 승인된 메뉴 기준 판정과 확정 식사 메뉴 |
+| `menu_names` | 메뉴 이름 검색용. 승인된 메뉴 이름 전체(식사·사이드·음료·주류, 중복 제거). 승인된 메뉴가 없으면 `null` |
 
 판별불가·주점의심 가게도 데이터 그대로 포함합니다(크롤링으로 갱신할 예정이라 거르는 규칙을 두지 않았습니다). 정렬은 번호 순입니다.
 
@@ -77,7 +78,7 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 
 ```text
 지도에서 가게 선택 → 메뉴판 사진 올리기 → OCR → menu_submissions(pending)
-   → 관리자 승인(/admin.html) → menus 반영(그 가게 메뉴를 통째로 교체, AI 원본 결과는 제보에 보관)
+   → 관리자 승인(/admin.html) → menus 반영(기존 메뉴에 추가 또는 통째로 교체, AI 원본 결과는 제보에 보관)
    → "만원 이하 식사" 필터와 카드 표시
 ```
 
@@ -151,12 +152,16 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/2441/menu-subm
 | 주소 | 하는 일 |
 | --- | --- |
 | `GET /api/admin/submissions?status=pending\|approved\|rejected` | 제보 목록(대기는 오래된 순) |
-| `GET /api/admin/submissions/:id` | 제보 상세(OCR 결과 전체) |
+| `GET /api/admin/submissions/:id` | 제보 상세(OCR 결과 전체, 지금 그 가게에 등록된 메뉴 `current_menus`) |
 | `GET /api/admin/submissions/:id/photo` | 원본 사진(관리자만, 브라우저에 저장되지 않음) |
-| `POST /api/admin/submissions/:id/approve` | 승인. 본문 `{ items: [{name, price_won, category}], note? }` |
+| `POST /api/admin/submissions/:id/approve` | 승인. 본문 `{ items: [{name, price_won, category}], mode?: "merge"|"replace", note? }` |
 | `POST /api/admin/submissions/:id/reject` | 반려. 본문 `{ note? }` |
 
-- 승인하면 **한 트랜잭션 안에서** 그 가게의 기존 메뉴를 모두 지우고 승인한 목록으로 교체합니다. 중간에 실패하면 아무것도 바뀌지 않습니다.
+- 승인 방식(`mode`)은 두 가지이고, 둘 다 **한 트랜잭션 안에서** 처리해 중간에 실패하면 아무것도 바뀌지 않습니다.
+  - `merge`(기본): **기존 메뉴에 추가**합니다. 이름이 같은 메뉴(띄어쓰기·대소문자 무시)는 새 가격·분류로 바꾸고, 이번 목록에 없는 기존 메뉴는 그대로 둡니다. 메뉴판이 여러 장인 가게를 위한 방식입니다.
+  - `replace`: 기존 메뉴를 모두 지우고 이번 목록으로 **통째로 교체**합니다. 메뉴판이 새로 바뀌었을 때 씁니다.
+  - 목록 안에 같은 이름이 두 번 있으면 마지막 것만 저장합니다. 같은 가게의 승인이 동시에 들어와도 엉키지 않게 가게 단위로 잠급니다.
+  - 응답의 `added`, `updated`, `removed`, `menu_count`로 무엇이 바뀌었는지 알 수 있습니다.
 - 서버가 보낸 목록을 다시 검사합니다(이름 100자 이하, 가격 500~100,000원 정수, 분류 meal/side/drink/alcohol, 최대 300개). `items`를 안 보내면 AI가 확신한 항목(`ok`)만 저장합니다.
 - 만원을 넘는 메뉴나 사이드·음료·주류도 모두 `menus`에 저장됩니다. 만원은 저장할 때 거르는 기준이 아니라 조회할 때 계산하는 기준입니다. 관리자가 뺀 메뉴와 AI가 걸러 낸 메뉴는 저장되지 않지만, AI가 읽은 원본(`menu_submissions.items`, `rejected`)은 승인 후에도 남습니다.
 - 이미 처리된 제보를 다시 승인·반려하면 `409`입니다. 반려는 기존 승인 메뉴를 건드리지 않습니다.

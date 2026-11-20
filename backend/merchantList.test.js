@@ -55,6 +55,15 @@ test('정렬은 번호 순서(숫자 길이 → 글자)라 숫자로 바꾸다 �
   assert.match(merchantListQueries().dataSql, /ORDER BY length\(s\.merchant_id\), s\.merchant_id/);
 });
 
+test('메뉴 이름 검색용으로 승인된 메뉴 이름 전체를 중복 없이 내려준다(분류 구분 없음)', () => {
+  const { dataSql } = merchantListQueries();
+  const block = dataSql.slice(dataSql.indexOf('array_agg(DISTINCT menu.name'));
+  assert.match(block, /^array_agg\(DISTINCT menu\.name ORDER BY menu\.name\)/);
+  assert.match(block, /WHERE menu\.merchant_id = s\.merchant_id\s*\)\s*AS menu_names/);
+  // 식사만 고르는 confirmed_meals 와 달리 분류 조건이 없다.
+  assert.doesNotMatch(block.slice(0, block.indexOf('AS menu_names')), /menu\.category/);
+});
+
 test('승인된 메뉴 요약과 확정 식사 메뉴는 staging 번호로 연결한다', () => {
   const { dataSql } = merchantListQueries();
   assert.match(dataSql, /LEFT JOIN public\.merchant_menu_summary AS ms\s+ON ms\.merchant_id = s\.merchant_id/);

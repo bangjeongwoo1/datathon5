@@ -97,3 +97,52 @@ test('API: 토큰을 헤더로 보내고, 서버 오류 문구와 상태를 그�
     (error: unknown) => error instanceof AdminApiError && error.status === 0,
   )
 })
+
+test('승인 미리보기(추가): 같은 이름은 갱신, 새 메뉴는 추가, 나머지는 유지', async () => {
+  const { previewApproval } = await import('../src/adminItems.ts')
+  const current = [
+    { name: '바지락 칼국수', price_won: 9000, category: 'meal' },
+    { name: '왕만두', price_won: 3000, category: 'side' },
+  ]
+  const approved = [
+    { name: '바지락칼국수', price_won: 9500, category: 'meal' as const },
+    { name: '들깨수제비', price_won: 9000, category: 'meal' as const },
+  ]
+  const r = previewApproval(current, approved, 'merge')
+  assert.equal(r.added, 1)
+  assert.equal(r.updated, 1)
+  assert.equal(r.kept, 1)
+  assert.equal(r.removed, 0)
+  assert.deepEqual(r.items.map(i => `${i.name}:${i.price_won}`).sort(), ['들깨수제비:9000', '바지락칼국수:9500', '왕만두:3000'])
+})
+
+test('승인 미리보기(교체): 기존 메뉴는 모두 지워지고 이번 목록만 남는다', async () => {
+  const { previewApproval } = await import('../src/adminItems.ts')
+  const current = [
+    { name: '바지락 칼국수', price_won: 9000, category: 'meal' },
+    { name: '왕만두', price_won: 3000, category: 'side' },
+  ]
+  const r = previewApproval(current, [{ name: '수제비', price_won: 8000, category: 'meal' }], 'replace')
+  assert.deepEqual(r, { items: [{ name: '수제비', price_won: 8000, category: 'meal' }], added: 1, updated: 0, kept: 0, removed: 2 })
+})
+
+test('승인 미리보기: 목록 안의 같은 이름은 마지막 것만 쓴다(서버와 같은 규칙)', async () => {
+  const { previewApproval } = await import('../src/adminItems.ts')
+  const r = previewApproval([], [
+    { name: '라면', price_won: 4000, category: 'meal' },
+    { name: '라 면', price_won: 4500, category: 'meal' },
+  ], 'merge')
+  assert.equal(r.items.length, 1)
+  assert.equal(r.items[0].price_won, 4500)
+  assert.equal(r.added, 1)
+})
+
+test('API: 승인할 때 승인 방식(mode)을 함께 보낸다', async () => {
+  let body: unknown = null
+  const fetchImpl = (async (_url: string, init: RequestInit) => {
+    body = JSON.parse(String(init.body))
+    return new Response(JSON.stringify({ status: 'approved', merchant_id: '1', mode: 'merge', menu_count: 1, added: 1, updated: 0, removed: 0 }))
+  }) as unknown as typeof fetch
+  await approveSubmission(3, { items: [{ name: '라면', price_won: 4000, category: 'meal' }], mode: 'merge' }, { token: 't', fetchImpl })
+  assert.deepEqual(body, { items: [{ name: '라면', price_won: 4000, category: 'meal' }], mode: 'merge' })
+})

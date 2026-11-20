@@ -77,6 +77,8 @@ export function createAdminRouter({ db }) {
         items: req.body?.items,
         note: req.body?.note,
         reviewer: req.user,
+        // 'merge'(기본, 기존 메뉴에 추가) 또는 'replace'(통째로 교체)
+        ...(req.body?.mode !== undefined ? { mode: req.body.mode } : {}),
       });
       res.json(result);
     })

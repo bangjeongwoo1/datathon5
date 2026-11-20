@@ -35,3 +35,12 @@
 @media (max-width: 760px) {
   .admin-layout { grid-template-columns: 1fr; }
 }
+
+/* 지금 등록된 메뉴, 승인 방식(추가/교체) */
+.admin-current { margin: 12px 0; font-size: 14px; }
+.admin-current summary { cursor: pointer; color: #334155; font-weight: 600; }
+.admin-current ul { margin: 6px 0 0; padding-left: 18px; color: #475569; }
+.admin-mode { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; margin: 12px 0; display: grid; gap: 6px; font-size: 14px; }
+.admin-mode legend { font-weight: 600; padding: 0 4px; }
+.admin-mode label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.admin-mode input { margin-top: 3px; }

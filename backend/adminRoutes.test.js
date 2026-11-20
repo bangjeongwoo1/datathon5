@@ -13,6 +13,7 @@ async function withServer(rows, fn) {
       const text = sql.replace(/\s+/g, ' ');
       if (text.includes('SELECT photo_path')) return { rows: rows.photo ?? [] };
       if (text.includes('jsonb_array_length(items) AS item_count') && text.includes('items, rejected')) return { rows: rows.detail ?? [] };
+      if (text.includes('FROM public.menus')) return { rows: rows.menus ?? [] };
       return { rows: rows.list ?? [] };
     },
   };
@@ -31,6 +32,7 @@ test('목록·상세·없는 제보·잘못된 번호의 응답 코드', async (
   await withServer({
     list: [{ submission_id: 1, merchant_id: 'a', status: 'pending', item_count: 2, has_uncertain: false }],
     detail: [{ submission_id: 1, merchant_id: 'a', status: 'pending', item_count: 0, items: [], rejected: [], photo_path: 'x.jpg' }],
+    menus: [{ name: '김치찌개', price_won: '9000', category: 'meal' }],
   }, async base => {
     const list = await (await fetch(`${base}/submissions`)).json();
     assert.equal(list.items[0].submission_id, 1);
@@ -38,6 +40,7 @@ test('목록·상세·없는 제보·잘못된 번호의 응답 코드', async (
     assert.equal((await fetch(`${base}/submissions/abc`)).status, 400);
     const detail = await (await fetch(`${base}/submissions/1`)).json();
     assert.equal(detail.has_photo, true);
+    assert.deepEqual(detail.current_menus, [{ name: '김치찌개', price_won: 9000, category: 'meal' }]);
     assert.equal('photo_path' in detail, false, '서버 파일 이름은 밖으로 내보내지 않는다');
   });
   await withServer({ detail: [] }, async base => {
