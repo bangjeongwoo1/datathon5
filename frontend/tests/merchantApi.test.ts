@@ -32,3 +32,16 @@ test('가맹점을 불러올 때 DB의 merchant_id를 문자열로 유지한다'
     globalThis.fetch = original
   }
 })
+
+test('만원 이하 필터: Y 인 가게만 남기고, N·모름(값 없음)은 제외한다', async () => {
+  const { filterMerchants } = await import('../src/merchants.ts')
+  const base = { address: '', category: '일반음식점', rawCategory: '한식', detailCategory: '한식' }
+  const items = [
+    { ...base, id: 1, name: '가', under10000: 'Y' },
+    { ...base, id: 2, name: '나', under10000: 'N' },
+    { ...base, id: 3, name: '다' },
+  ] as Parameters<typeof filterMerchants>[0]
+  assert.deepEqual(filterMerchants(items, { query: '', category: '전체', underTenOnly: true }).map(s => s.id), [1])
+  assert.equal(filterMerchants(items, { query: '', category: '전체' }).length, 3)
+  assert.equal(filterMerchants(items, { query: '', category: '전체', underTenOnly: false }).length, 3)
+})

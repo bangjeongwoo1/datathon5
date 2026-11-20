@@ -180,15 +180,17 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 
 모델 이름은 자주 바뀌므로 `https://generativelanguage.googleapis.com/v1beta/models`에서 현재 사용 가능한 이름을 확인하세요.
 
-#### DB 테이블 (`backend/migrations/001_menu_tables.sql`)
+#### DB 테이블 (`backend/migrations/`)
 
 | 테이블·뷰 | 역할 |
 |---|---|
-| `menu_submissions` | 제보 한 건(사진 한 장)의 OCR 결과와 승인 상태(`pending`/`approved`/`rejected`) |
+| `menu_submissions` | 제보 한 건(사진 한 장)의 OCR 결과와 승인 상태(`pending`/`approved`/`rejected`). 제출 당시의 가게 이름·주소(`merchant_name`, `merchant_address`)도 함께 저장합니다. |
 | `menus` | 관리자가 승인한 확정 메뉴. 지도와 필터는 이 테이블만 봅니다. |
-| `merchant_menu_summary` | 가게별 식사(`meal`) 최저가. "만원 이하" 필터용 뷰 |
+| `merchant_menu_summary` | 가게(`merchant_id`)당 한 줄. 식사 최저가와 **`in_under_10000`**(`Y`: 식사 중 1만 원 이하가 있음 / `N`: 식사는 있는데 모두 1만 원 초과 / 비어 있음: 아직 모름. 1만 원은 포함) |
 
-적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
+- 파일: `001_menu_tables.sql`(테이블), `002_menu_summary_and_snapshot.sql`(판정 뷰, 이름·주소 저장 열, RLS)
+- 적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
+- 메뉴 테이블의 `merchant_id`는 지금 **`merchants`**를 가리킵니다. 크롤링이 끝나 지도의 가게 목록을 `merchant_crawl_staging`으로 바꿀 때는 `backend/migrations/later/003_menu_tables_on_staging.sql`을 적용합니다. 이 폴더는 `migrate.js`가 읽지 않으므로 실수로 적용되지 않습니다. 옛 번호로 저장된 제보는 제출 당시의 가게 이름·주소로 새 번호를 찾아 바꾸고, 하나라도 바꾸지 못하면 전체가 되돌려집니다.
 
 ### POST /api/merchants/:merchantId/menu-submissions
 
@@ -198,13 +200,14 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu-submissions
 ```
 
-- 요청: `:merchantId`는 `merchants.merchant_id`, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
+- 요청: `:merchantId`는 지금 지도가 쓰는 **`merchants.merchant_id`**(예: `CC-000166`)이고, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
 - 성공(201): `submission_id`, `status: "pending"`, `has_uncertain`, `items`, `rejected`, `model`
 - 실패: 사진 없음·형식 오류·잘못된 가맹점 번호 `400`, 없는 가맹점 `404`, 메뉴를 읽지 못함 `422`(저장하지 않음), 호출 제한 초과 `429`
 - 없는 가맹점은 AI를 호출하기 **전에** 거절하므로 비용이 들지 않습니다.
+- 가게 번호가 있는지는 기본으로 `merchants`에서 확인하고, 이때 가게 이름·주소도 함께 찾아 제보와 같이 저장합니다. 지도의 가게 목록을 `merchant_crawl_staging`으로 바꾸는 날에는 `backend/.env`에 `MERCHANT_SOURCE_TABLE=merchant_crawl_staging` 한 줄만 넣으면 됩니다. (`merchants`와 `merchant_crawl_staging`만 허용합니다.)
 - 사진은 `backend/uploads/menu-photos/`에 서버가 정한 이름으로 저장됩니다(Git에 올라가지 않음). 관리자가 승인·반려한 뒤 삭제할 예정이며, 폴더는 `MENU_PHOTO_DIR`로 바꿀 수 있습니다.
 - DB 저장이 실패하면 방금 저장한 사진도 함께 지웁니다.
-- 로그인 기능이 붙기 전에는 제출자(`submitted_by`)가 비어 있습니다.
+- 로그인한 사용자가 올리면 제출자(`submitted_by`, `submitted_email`)가 기록되고, 로그인하지 않아도 제보는 받습니다. (`backend/auth.js`의 `attachUser`)
 - **배포 주의**: Render 같은 서버는 재시작 때 파일이 사라지므로, 배포 전에 사진 저장소를 Supabase Storage 등으로 바꿔야 합니다. (`backend/menuSubmissions.js`의 `savePhoto`, `deletePhoto`만 바꾸면 됩니다.)
 
 #### 앞으로 연결할 흐름
@@ -215,9 +218,38 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/CC-000001/menu
    → 가게 상세에 메뉴 표시 + "만원 이하 식사 메뉴" 필터
 ```
 
-남은 작업: 사진 올리기 화면, 관리자 승인 화면(로그인 필요), 메뉴 표시와 필터, 사진 저장소 교체(배포용), Supabase 테이블 적용.
+남은 작업: 가게 상세에 승인된 메뉴 목록 표시, 사진 저장소 교체(배포용).
+
+**"만원 이하 식사" 필터**: `GET /api/merchants`가 가게마다 `in_under_10000`(Y/N/null)과 `min_meal_price_won`(식사 최저가)을 함께 돌려줍니다(`merchant_menu_summary` 뷰). 목록 위 "만원 이하 식사" 체크박스를 켜면 `Y`인 가게만 지도·목록에 남고, `N`이거나 아직 승인된 메뉴가 없는(모름) 가게는 빠집니다. `Y`인 가게는 카드에 초록색 "만원 이하" 표시가 붙습니다.
+
+#### 관리자 검수 (`backend/menuAdmin.js`, `backend/adminRoutes.js`, 화면 `/admin.html`)
+
+관리자(`ADMIN_EMAILS`)만 쓸 수 있습니다. 화면 주소는 프론트 서버의 `http://localhost:5173/admin.html`이고, 구글로 로그인하면 대기 중인 제보가 오래된 순으로 나옵니다.
+
+| 주소 | 하는 일 |
+| --- | --- |
+| `GET /api/admin/submissions?status=pending\|approved\|rejected` | 제보 목록 |
+| `GET /api/admin/submissions/:id` | 제보 상세(OCR 결과 전체) |
+| `GET /api/admin/submissions/:id/photo` | 원본 사진(관리자만, 브라우저에 저장되지 않음) |
+| `POST /api/admin/submissions/:id/approve` | 승인. 본문 `{ items: [{name, price_won, category}], note? }` |
+| `POST /api/admin/submissions/:id/reject` | 반려. 본문 `{ note? }` |
+
+- 승인하면 **한 트랜잭션 안에서** 그 가게의 기존 메뉴를 모두 지우고 승인한 목록으로 교체합니다. 중간에 실패하면 아무것도 바뀌지 않습니다.
+- 관리자가 화면에서 이름·가격·분류를 고치거나 항목을 지우고 추가할 수 있고, 서버가 다시 검사합니다(가격 500~100,000원 정수, 분류 meal/side/drink/alcohol). 승인 시 `items`를 안 보내면 AI가 확신한 항목(`ok`)만 저장합니다.
+- 이미 처리된 제보를 다시 승인·반려하면 `409`입니다. 반려는 기존 승인 메뉴를 건드리지 않습니다.
+- 승인·반려가 끝나면 보관 중이던 원본 사진을 지웁니다.
+- 처음 쓸 때: 관리자가 아닌 계정으로 `/admin.html`에 들어가면 **로그인한 이메일**이 보이므로, 그 값을 `backend/.env`의 `ADMIN_EMAILS=`에 적고 백엔드를 껐다 켭니다.
 
 백엔드 테스트: `cd backend; npm.cmd test`
+
+### 로그인·관리자 확인 (`backend/auth.js`)
+
+서버가 프론트의 로그인 토큰(`Authorization: Bearer …`)을 **Supabase에 직접 물어서** 확인합니다. 별도 비밀 키는 필요 없습니다.
+
+- `backend/.env`에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`(프론트 `.env.local`과 같은 공개 값), `ADMIN_EMAILS`(관리자 이메일, 쉼표로 구분)를 넣습니다.
+- 확인이 끝나면 `req.user = { id, email, name, isAdmin }`가 채워집니다. `requireAuth`(비로그인 401), `requireAdmin`(관리자가 아니면 403), `attachUser`(로그인했을 때만 채우고 막지 않음)를 쓸 수 있습니다.
+- **기본은 잠금**입니다. 설정이 없으면 503, `ADMIN_EMAILS`가 비어 있으면 아무도 관리자가 아닙니다. 이메일 인증이 끝난 계정만 관리자로 인정합니다.
+- 설정 확인용: `GET /api/me`(로그인 필요), `GET /api/admin/ping`(관리자만).
 
 ## 5. 데이터 및 기능 관련 주의사항
 

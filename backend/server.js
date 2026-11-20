@@ -9,9 +9,11 @@ import {
   geminiConfigured,
   MenuOcrError,
 } from "./menuOcr.js";
+import { attachUser, requireAdmin, requireAuth } from "./auth.js";
+import { createAdminRouter } from "./adminRoutes.js";
 import {
+  findMerchant,
   isValidMerchantId,
-  merchantExists,
   submitMenuPhoto,
 } from "./menuSubmissions.js";
 
@@ -320,10 +322,14 @@ app.get("/api/merchants", async (req, res) => {
       n.sunday_open,
       n.sunday_close,
       n.address_check,
-      n.match_status
+      n.match_status,
+      s.in_under_10000,
+      s.min_meal_price_won
    FROM public.merchants AS m
    LEFT JOIN public.merchant_naver_info AS n
      ON m.merchant_id = n.merchant_id
+   LEFT JOIN public.merchant_menu_summary AS s
+     ON m.merchant_id = s.merchant_id
    ${where}
    ORDER BY m.merchant_id
    LIMIT $${params.length + 1}
@@ -462,6 +468,7 @@ app.post("/api/menu-ocr", requireGemini, parseMenuImage, async (req, res) => {
 app.post(
   "/api/merchants/:merchantId/menu-submissions",
   requireGemini,
+  attachUser, // 로그인했으면 제출자(req.user)를 기록한다. 로그인하지 않아도 막지 않는다.
   parseMenuImage,
   async (req, res) => {
     const { merchantId } = req.params;
@@ -472,7 +479,8 @@ app.post(
 
     try {
       // AI 호출 비용이 들기 전에 가게부터 확인한다.
-      if (!(await merchantExists(pool, merchantId))) {
+      const merchant = await findMerchant(pool, merchantId);
+      if (!merchant) {
         return res.status(404).json({ error: "가맹점을 찾을 수 없습니다." });
       }
 
@@ -493,6 +501,7 @@ app.post(
 
       const submission = await submitMenuPhoto(pool, {
         merchantId,
+        merchant, // 제출 당시의 가게 이름·주소를 함께 저장한다.
         buffer,
         mimeType,
         ocr,
@@ -505,6 +514,16 @@ app.post(
     }
   }
 );
+
+// ---- 로그인·관리자 확인용 ----
+// 로그인한 사용자의 정보를 돌려준다. (프론트가 "관리자인지" 알아볼 때도 쓴다.)
+app.get("/api/me", requireAuth, (req, res) => {
+  res.json(req.user);
+});
+
+// 관리자 검수(제보 목록·사진·승인·반려). 아래 모든 주소는 관리자만 통과한다.
+// /api/admin/ping 은 로그인·관리자 설정이 제대로 됐는지 확인하는 용도.
+app.use("/api/admin", requireAdmin, createAdminRouter({ db: pool }));
 
 app.listen(PORT, () => {
   console.log(`STT 서버 실행: http://localhost:${PORT}`);

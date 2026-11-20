@@ -6,7 +6,12 @@ export type Merchant = MerchantRecord
 
 export const merchants: Merchant[] = sourceMerchants.map(toMerchant)
 
-export type Filters = { query: string; category: string }
+export type Filters = {
+  query: string
+  category: string
+  // true 면 승인된 메뉴판에서 만원 이하 식사가 확인된(Y) 가게만. 모르는 가게(값 없음)는 제외한다.
+  underTenOnly?: boolean
+}
 
 
 export function filterMerchants(
@@ -27,6 +32,8 @@ export function filterMerchants(
       store.detailCategory,
     ].join(' ').toLocaleLowerCase()
 
-    return categoryMatches && searchable.includes(query)
+    const underTenMatches = !filters.underTenOnly || store.under10000 === 'Y'
+
+    return categoryMatches && underTenMatches && searchable.includes(query)
   })
 }

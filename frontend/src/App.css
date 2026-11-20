@@ -42,3 +42,19 @@
 .brand-icon img{display:block;width:100%;height:100%;object-fit:contain;transform:scale(1.18)}
 @media(min-width:761px){.header{gap:26px}}
 .footer-logo{width:27px;height:27px;object-fit:contain;transform:scale(1.16)}
+
+/* "만원 이하 식사" 표시 */
+.under-ten-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #ecfdf3;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.under-ten-text {
+  color: #047857;
+}

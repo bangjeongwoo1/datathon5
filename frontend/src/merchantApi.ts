@@ -22,6 +22,10 @@ type DbMerchant = {
   saturday_close: string | null
   sunday_open: string | null
   sunday_close: string | null
+
+  // 관리자가 승인한 메뉴 기준(merchant_menu_summary). 승인된 메뉴가 없으면 둘 다 null.
+  in_under_10000?: 'Y' | 'N' | null
+  min_meal_price_won?: number | string | null
 }
 
 type MerchantResponse = {
@@ -159,6 +163,12 @@ export async function loadRegionMerchants(
       hours: '',
       distance: 0,
       ...(row.phone ? { phone: row.phone } : {}),
+      ...(row.in_under_10000 === 'Y' || row.in_under_10000 === 'N'
+        ? { under10000: row.in_under_10000 }
+        : {}),
+      ...(row.min_meal_price_won != null && Number.isFinite(Number(row.min_meal_price_won))
+        ? { minMealPriceWon: Number(row.min_meal_price_won) }
+        : {}),
     }
   })
 }

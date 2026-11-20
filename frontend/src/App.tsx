@@ -107,6 +107,7 @@ function App(){
  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('전체')
  const [sortMode,setSortMode]=useState<SortMode>('rating')
  const [minReviewsOnly,setMinReviewsOnly]=useState(false)
+ const [underTenOnly,setUnderTenOnly]=useState(false)
  const [userLocation,setUserLocation]=useState<Coordinates|null>(null)
 
  const [selectionRequest,setSelectionRequest]=useState(0)
@@ -133,8 +134,9 @@ const filtered = useMemo(
   () => filterMerchants(merchants, {
     query: search,
     category,
+    underTenOnly,
   }),
-  [merchants, search, category]
+  [merchants, search, category, underTenOnly]
 )
  const visible=useMemo(()=>scopeMerchants(filtered,clusterIds),[filtered,clusterIds])
 
@@ -176,7 +178,7 @@ const selectRegion = useCallback((ids: number[]) => {
  useEffect(()=>{if(clusterIds!==null)resultsHeading.current?.focus()},[clusterIds])
  const clearRegion=()=>{setClusterIds(null);setSelectedId(null);requestAnimationFrame(()=>resultsHeading.current?.focus())}
  const selected=visible.find(s=>s.id===selectedId)
- const reset=()=>{setQuery('');setSearch('');setCategory('전체');setSortMode('rating');setMinReviewsOnly(false);setSelectedId(null);setClusterIds(null)}
+ const reset=()=>{setQuery('');setSearch('');setCategory('전체');setSortMode('rating');setMinReviewsOnly(false);setUnderTenOnly(false);setSelectedId(null);setClusterIds(null)}
 
 
 const changeRegion = (nextRegion: Region) => {
@@ -410,9 +412,13 @@ onClick={() => {
     <input type="checkbox" checked={minReviewsOnly} onChange={e=>setMinReviewsOnly(e.target.checked)}/>
     리뷰 10개 미만 제외
   </label>
+  <label className="sort-min-reviews">
+    <input type="checkbox" checked={underTenOnly} onChange={e=>setUnderTenOnly(e.target.checked)}/>
+    만원 이하 식사
+  </label>
 </div>
  {clusterIds!==null&&<div className="cluster-selection"><span><Icon name="pin" size={14}/>선택한 묶음의 가맹점 {visible.length}곳</span><button onClick={clearRegion}>전체 목록 보기 ×</button></div>}
- <div className="store-list" aria-live="polite">{!sortedVisible.length?<div className="empty"><Icon name="search" size={32}/><h3>검색 결과가 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p><button onClick={reset}>필터 초기화</button></div>:sortedVisible.map(s=><article key={s.id} className={`store-card ${selectedId===s.id?'selected':''}`}><div className="store-top"><span className={`category-label ${color(s.category)}`}>{s.category}</span><span className="status closed">
+ <div className="store-list" aria-live="polite">{!sortedVisible.length?<div className="empty"><Icon name="search" size={32}/><h3>검색 결과가 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p><button onClick={reset}>필터 초기화</button></div>:sortedVisible.map(s=><article key={s.id} className={`store-card ${selectedId===s.id?'selected':''}`}><div className="store-top"><span className={`category-label ${color(s.category)}`}>{s.category}</span>{s.under10000==='Y'&&<span className="under-ten-badge">만원 이하{s.minMealPriceWon?` · ${s.minMealPriceWon.toLocaleString('ko-KR')}원~`:''}</span>}<span className="status closed">
   영업 여부 미확인
 </span></div><button className="store-title" aria-pressed={selectedId===s.id} onClick={()=>{setSelectedId(s.id);setSelectionRequest(n=>n+1)}}>{s.name}<span>›</span></button>{s.merchantId && reviewSummaries[s.merchantId] && (reviewSummaries[s.merchantId].reviewCount>0?<span className="store-rating">★ {reviewSummaries[s.merchantId].avgRating?.toFixed(1)}</span>:<span className="store-rating none">평가 없음</span>)}<p className="store-address">{s.address}</p><div className="store-details">
   {s.phone && <span>{s.phone}</span>}
@@ -422,7 +428,7 @@ onClick={() => {
  <section className="map" aria-label="춘천 중심부 카카오 지도"><KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} onLocationChange={receiveLocation} userLocation={userLocation}/>
  {selected&&<div className="map-popup"><div className="popup-head"><span className="popup-kicker">
   선택한 가맹점 <span>공공데이터 기반</span>
-</span><button aria-label="매장 상세 닫기" onClick={()=>setSelectedId(null)}>×</button></div><div className="popup-title"><span className="popup-icon"><Icon name="pin" size={23}/></span><div><h2>{selected.name}</h2><p>{selected.category} <span>·</span> <b>영업 여부 미확인</b></p></div></div><div className="popup-info"><p><Icon name="pin" size={16}/>{selected.address}</p>{selected.phone && (
+</span><button aria-label="매장 상세 닫기" onClick={()=>setSelectedId(null)}>×</button></div><div className="popup-title"><span className="popup-icon"><Icon name="pin" size={23}/></span><div><h2>{selected.name}</h2><p>{selected.category} <span>·</span> <b>영업 여부 미확인</b>{selected.under10000==='Y'&&<> <span>·</span> <b className="under-ten-text">만원 이하 식사 있음</b></>}</p></div></div><div className="popup-info"><p><Icon name="pin" size={16}/>{selected.address}</p>{selected.phone && (
   <p>
     <Icon name="phone" size={16}/>
     {selected.phone}

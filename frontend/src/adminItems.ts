@@ -1,0 +1,80 @@
+// 관리자 검수 화면에서 메뉴 목록을 고칠 때 쓰는 계산. 화면과 분리해 브라우저 없이 테스트한다.
+import type { MenuCategory, SubmittedItem } from './menuSubmission.ts'
+
+export const MIN_PRICE_WON = 500
+export const MAX_PRICE_WON = 100_000
+export const UNDER_LIMIT_WON = 10_000 // "만원 이하" 기준(이 금액 포함)
+
+export type DraftItem = {
+  key: number // 화면 목록용 번호. 서버로 보내지 않는다.
+  name: string
+  price: string // 입력창 값 그대로(숫자만 남기지는 않는다)
+  category: MenuCategory
+  uncertain: boolean // AI가 확신하지 못한 항목: 사람이 꼭 눈으로 확인해야 한다.
+}
+
+export type ApprovedItem = { name: string; price_won: number; category: Exclude<MenuCategory, 'unknown'> }
+
+let nextKey = 1
+
+/** 서버가 준 OCR 결과를 고칠 수 있는 목록으로 바꾼다. */
+export function toDrafts(items: SubmittedItem[]): DraftItem[] {
+  return items.map((item) => ({
+    key: nextKey++,
+    name: item.name,
+    price: String(item.price_won),
+    category: item.category,
+    uncertain: item.status === 'uncertain',
+  }))
+}
+
+export function emptyDraft(): DraftItem {
+  return { key: nextKey++, name: '', price: '', category: 'meal', uncertain: false }
+}
+
+/** "9,000" "9000원" 같은 입력을 정수로. 숫자가 아니면 null. */
+export function parsePriceInput(text: string): number | null {
+  const cleaned = text.replace(/[,\s원]/g, '')
+  if (!/^\d+$/.test(cleaned)) return null
+  const value = Number(cleaned)
+  return Number.isSafeInteger(value) ? value : null
+}
+
+/** 한 줄의 문제를 한글로. 괜찮으면 null. */
+export function validateDraft(draft: DraftItem): string | null {
+  if (!draft.name.trim()) return '메뉴 이름을 입력해 주세요.'
+  if (draft.name.trim().length > 100) return '메뉴 이름이 너무 깁니다.'
+  const price = parsePriceInput(draft.price)
+  if (price === null) return '가격은 숫자로 입력해 주세요.'
+  if (price < MIN_PRICE_WON || price > MAX_PRICE_WON) {
+    return `가격은 ${MIN_PRICE_WON.toLocaleString('ko-KR')}~${MAX_PRICE_WON.toLocaleString('ko-KR')}원 사이여야 합니다.`
+  }
+  if (draft.category === 'unknown') return '분류(식사·사이드·음료·주류)를 골라 주세요.'
+  return null
+}
+
+/** 승인 전 최종 검사. 문제가 없으면 서버로 보낼 목록을, 있으면 이유를 돌려준다. */
+export function buildApproval(
+  drafts: DraftItem[],
+): { ok: true; items: ApprovedItem[] } | { ok: false; error: string } {
+  if (drafts.length === 0) return { ok: false, error: '승인할 메뉴가 없어요. 메뉴를 한 개 이상 남겨 주세요.' }
+  for (const [index, draft] of drafts.entries()) {
+    const problem = validateDraft(draft)
+    if (problem) return { ok: false, error: `${index + 1}번째 메뉴: ${problem}` }
+  }
+  return {
+    ok: true,
+    items: drafts.map((draft) => ({
+      name: draft.name.trim(),
+      price_won: parsePriceInput(draft.price) as number,
+      category: draft.category as ApprovedItem['category'],
+    })),
+  }
+}
+
+/** 승인하면 이 가게가 "만원 이하 식사 있음(Y)"인지 미리 보여 주기 위한 계산. 식사가 없으면 null(모름). */
+export function previewUnder10000(items: ApprovedItem[]): 'Y' | 'N' | null {
+  const meals = items.filter((item) => item.category === 'meal')
+  if (meals.length === 0) return null
+  return meals.some((item) => item.price_won <= UNDER_LIMIT_WON) ? 'Y' : 'N'
+}

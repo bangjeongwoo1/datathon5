@@ -15,6 +15,9 @@ try {
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Supabase 는 public 테이블을 API 로 노출하므로, 팀의 다른 테이블처럼 RLS 를 켜 둔다.
+  // (백엔드는 DB 에 직접 접속하므로 영향이 없고, 정책이 없으므로 anon 키로는 읽을 수 없다.)
+  await pool.query("ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY");
 
   const applied = new Set(
     (await pool.query("SELECT filename FROM public.schema_migrations")).rows.map(

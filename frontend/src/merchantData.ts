@@ -23,6 +23,10 @@ export type MerchantRecord = {
   delivery?: boolean
   coordinates?: { lat: number; lng: number }
 
+  // 승인된 메뉴판 기준 "만원 이하 식사" 여부. Y 있음, N 없음, 값이 없으면 아직 모름.
+  under10000?: 'Y' | 'N'
+  minMealPriceWon?: number
+
   // 네이버 크롤링 정보
   naverCuisine?: string
   naverClassification?: string

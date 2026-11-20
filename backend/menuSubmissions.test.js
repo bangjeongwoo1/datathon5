@@ -5,8 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   deletePhoto,
+  findMerchant,
   isValidMerchantId,
   merchantExists,
+  merchantSourceTable,
   savePhoto,
   submitMenuPhoto,
 } from './menuSubmissions.js';
@@ -30,8 +32,12 @@ function fakeDb({ failInsert = false } = {}) {
     calls,
     query: async (sql, params) => {
       calls.push({ sql, params });
-      if (/FROM public\.merchants/.test(sql)) {
-        return { rows: params[0] === 'CC-000001' ? [{ '?column?': 1 }] : [] };
+      if (/FROM public\.\w+\s+WHERE merchant_id/.test(sql)) {
+        // staging 번호('1')와 옛 번호('CC-000001') 중 하나만 있는 가게 목록인 것처럼 흉내 낸다.
+        const known = /merchant_crawl_staging/.test(sql) ? '1' : 'CC-000001';
+        return {
+          rows: params[0] === known ? [{ name: '시험식당', address: '강원 춘천시 중앙로 33' }] : [],
+        };
       }
       if (failInsert) throw new Error('db down');
       return { rows: [{ submission_id: '7', status: 'pending', created_at: '2026-11-20T00:00:00Z' }] };
@@ -48,10 +54,63 @@ test('merchant_id 형식 검사: 정상 값은 통과, 경로·특수문자는 �
   }
 });
 
-test('가게 존재 여부를 조회한다', async () => {
+test('가게 확인은 기본으로 지금 지도가 쓰는 merchants 의 번호로 한다', async () => {
+  delete process.env.MERCHANT_SOURCE_TABLE;
   const db = fakeDb();
+
+  assert.equal(merchantSourceTable(), 'merchants');
   assert.equal(await merchantExists(db, 'CC-000001'), true);
   assert.equal(await merchantExists(db, 'NOPE'), false);
+  assert.equal(await merchantExists(db, '1'), false); // staging 번호는 merchants 에 없다
+  assert.match(db.calls[0].sql, /FROM public\.merchants\s/);
+});
+
+test('MERCHANT_SOURCE_TABLE=merchant_crawl_staging 한 줄로 가게 목록을 staging 으로 바꾼다', async () => {
+  process.env.MERCHANT_SOURCE_TABLE = 'merchant_crawl_staging';
+  try {
+    const db = fakeDb();
+    assert.equal(merchantSourceTable(), 'merchant_crawl_staging');
+    assert.equal(await merchantExists(db, '1'), true);
+    assert.equal(await merchantExists(db, 'CC-000001'), false);
+    // staging 은 이름·주소 칸 이름이 달라서 별칭(AS)으로 같은 모양으로 꺼낸다.
+    assert.match(db.calls[0].sql, /"mrhstNm" AS name/);
+    assert.match(db.calls[0].sql, /"rdnmadr" AS address/);
+    assert.match(db.calls[0].sql, /FROM public\.merchant_crawl_staging\s/);
+  } finally {
+    delete process.env.MERCHANT_SOURCE_TABLE;
+  }
+});
+
+test('가게를 찾으면 이름·주소를 돌려주고, 없으면 null', async () => {
+  delete process.env.MERCHANT_SOURCE_TABLE;
+  const db = fakeDb();
+  assert.deepEqual(await findMerchant(db, 'CC-000001'), {
+    name: '시험식당',
+    address: '강원 춘천시 중앙로 33',
+  });
+  assert.equal(await findMerchant(db, 'NOPE'), null);
+});
+
+test('허용하지 않은 테이블 이름은 거절한다 (SQL에 들어가는 값이므로)', async () => {
+  process.env.MERCHANT_SOURCE_TABLE = 'merchants; DROP TABLE menus';
+  try {
+    assert.throws(() => merchantSourceTable(), /MERCHANT_SOURCE_TABLE/);
+    await assert.rejects(merchantExists(fakeDb(), '1'), /MERCHANT_SOURCE_TABLE/);
+  } finally {
+    delete process.env.MERCHANT_SOURCE_TABLE;
+  }
+});
+
+test('가게 목록 테이블이 DB에 없으면 해결 방법이 담긴 오류를 낸다', async () => {
+  delete process.env.MERCHANT_SOURCE_TABLE;
+  const db = {
+    query: async () => {
+      const error = new Error('relation "public.merchant_crawl_staging" does not exist');
+      error.code = '42P01';
+      throw error;
+    },
+  };
+  await assert.rejects(findMerchant(db, '1'), /public\.merchants.*MERCHANT_SOURCE_TABLE/s);
 });
 
 test('사진은 서버가 정한 이름으로 저장되고 삭제할 수 있다', async () => {
@@ -99,6 +158,7 @@ test('제보 저장: 검수 대기로 넣고, 불확실 항목이 있으면 표�
 
     const result = await submitMenuPhoto(db, {
       merchantId: 'CC-000001',
+      merchant: { name: '시험식당', address: '강원 춘천시 중앙로 33' },
       buffer: PNG,
       mimeType: 'image/png',
       ocr,
@@ -117,6 +177,9 @@ test('제보 저장: 검수 대기로 넣고, 불확실 항목이 있으면 표�
     assert.deepEqual(JSON.parse(params[4]), ocr.items);
     assert.equal(params[6], 'model-a');
     assert.equal(params[7], true);
+    // 제출 당시의 가게 이름·주소가 함께 저장된다 (나중에 번호 체계가 바뀔 때 다시 연결하는 단서)
+    assert.equal(params[8], '시험식당');
+    assert.equal(params[9], '강원 춘천시 중앙로 33');
 
     // 사진이 보관돼 있고 photo_path가 그 파일을 가리킨다
     assert.deepEqual(await fs.readdir(dir), [params[3]]);
@@ -138,6 +201,9 @@ test('제보 저장: 모두 ok이면 불확실 표시가 없고, 로그인 사�
     const params = db.calls[0].params;
     assert.equal(params[1], 'user-1');
     assert.equal(params[2], 'a@example.com');
+    // 가게 정보를 넘기지 않아도 저장은 되고, 이름·주소는 비어 있게(NULL) 저장된다.
+    assert.equal(params[8], null);
+    assert.equal(params[9], null);
   });
 });
 
