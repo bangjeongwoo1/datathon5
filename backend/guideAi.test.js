@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 process.env.GUIDE_TEXT_MODEL = 'test-model';
-import { registerGuideAi } from './guideAi.js';
+import { registerGuideAi, DEFAULT_GUIDE_TEXT_MODEL } from './guideAi.js';
 
 async function withServer(client, run) {
   const app = express(); app.use(express.json()); registerGuideAi(app, client);
@@ -21,6 +21,46 @@ test('AI 키 누락은 고정 답변을 AI처럼 반환하지 않고 503으로 �
       assert.equal((await response.json()).error, 'AI_NOT_CONFIGURED');
     }
   });
+});
+
+test('모델 환경변수가 없거나 비어 있어도 기본 AI 모델로 검색과 답변을 생성한다', async () => {
+  const before = process.env.GUIDE_TEXT_MODEL;
+  try {
+    for (const setting of [undefined, '', '   ']) {
+      if (setting === undefined) delete process.env.GUIDE_TEXT_MODEL;
+      else process.env.GUIDE_TEXT_MODEL = setting;
+      const models = [];
+      const client = { chat: { completions: { create: async input => {
+        models.push(input.model);
+        assert.equal(input.response_format.type, 'json_schema');
+        const value = input.response_format.json_schema.name === 'guide_intent'
+          ? { action: 'search', query: { terms: '', category: '일반음식점', budget: 10000 }, reply: null }
+          : { reply: '등록된 메뉴를 확인해 안내할게요.' };
+        return { choices: [{ message: { content: JSON.stringify(value) } }] };
+      } } } };
+      await withServer(client, async post => {
+        for (const path of ['/api/guide-intent', '/api/guide-answer']) {
+          const r = await post(path, { text: '만원 이하 식당 찾아줘' });
+          assert.equal(r.status, 200);
+        }
+      });
+      assert.deepEqual(models, [DEFAULT_GUIDE_TEXT_MODEL, DEFAULT_GUIDE_TEXT_MODEL]);
+    }
+  } finally {
+    if (before === undefined) delete process.env.GUIDE_TEXT_MODEL;
+    else process.env.GUIDE_TEXT_MODEL = before;
+  }
+});
+
+test('운영자가 지정한 모델은 기본값으로 덮어쓰지 않는다', async () => {
+  const before = process.env.GUIDE_TEXT_MODEL;
+  process.env.GUIDE_TEXT_MODEL = ' custom-model ';
+  try {
+    await withServer({ chat: { completions: { create: async input => {
+      assert.equal(input.model, 'custom-model');
+      return { choices: [{ message: { content: '{"reply":"모델 응답"}' } }] };
+    } } } }, async post => assert.equal((await post('/api/guide-answer', { text: '안녕' })).status, 200));
+  } finally { process.env.GUIDE_TEXT_MODEL = before; }
 });
 
 test('자연어 의도와 설명 응답을 모델 결과에서 가져온다', async () => {
