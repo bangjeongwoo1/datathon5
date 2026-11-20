@@ -58,3 +58,13 @@
 .under-ten-text {
   color: #047857;
 }
+
+/* 기존 가맹점 유형 및 공공/네이버 세부 업종 필터 */
+.search-section .filter-section{padding:15px 0 0;border:0}
+.search-section .filter-label{margin:0 0 8px;font-size:11px;font-weight:700;color:#415675}
+.search-section .filter-label:not(:first-child){margin-top:12px}
+.search-section .filter-label span{font-weight:400;color:#8391a4}
+.search-section .chips{display:flex;flex-wrap:wrap;gap:6px}
+.search-section .chip{cursor:pointer}
+.search-section .chip:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.cuisine-match-reason{margin-top:6px;font-size:11px;color:#2563eb}

@@ -7,6 +7,8 @@ import type { ReactNode } from 'react'
 import VoiceSearch from './VoiceSearch'
 import MenuUploadModal from './MenuUploadModal'
 import { filterMerchants } from './merchants'
+import { CUISINE_OPTIONS } from './cuisineFilter'
+import type { CuisineType } from './cuisineFilter'
 import { loadRegionMerchants } from './merchantApi'
 import type { Merchant } from './merchants'
 import './App.css'
@@ -105,6 +107,7 @@ function App(){
 
  const [voiceSearchRequest, setVoiceSearchRequest] = useState(0)
  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[category,setCategory]=useState('전체')
+ const [cuisine, setCuisine] = useState<CuisineType | null>(null)
  const [sortMode,setSortMode]=useState<SortMode>('rating')
  const [minReviewsOnly,setMinReviewsOnly]=useState(false)
  const [underTenOnly,setUnderTenOnly]=useState(false)
@@ -134,9 +137,10 @@ const filtered = useMemo(
   () => filterMerchants(merchants, {
     query: search,
     category,
+    cuisine,
     underTenOnly,
   }),
-  [merchants, search, category, underTenOnly]
+  [merchants, search, category, cuisine, underTenOnly]
 )
  const visible=useMemo(()=>scopeMerchants(filtered,clusterIds),[filtered,clusterIds])
 
@@ -178,7 +182,7 @@ const selectRegion = useCallback((ids: number[]) => {
  useEffect(()=>{if(clusterIds!==null)resultsHeading.current?.focus()},[clusterIds])
  const clearRegion=()=>{setClusterIds(null);setSelectedId(null);requestAnimationFrame(()=>resultsHeading.current?.focus())}
  const selected=visible.find(s=>s.id===selectedId)
- const reset=()=>{setQuery('');setSearch('');setCategory('전체');setSortMode('rating');setMinReviewsOnly(false);setUnderTenOnly(false);setSelectedId(null);setClusterIds(null)}
+ const reset=()=>{setQuery('');setSearch('');setCategory('전체');setCuisine(null);setSortMode('rating');setMinReviewsOnly(false);setUnderTenOnly(false);setSelectedId(null);setClusterIds(null)}
 
 
 const changeRegion = (nextRegion: Region) => {
@@ -379,6 +383,46 @@ onClick={() => {
 
  <div className="announcement"><Icon name="info" size={17}/><strong>이용 안내</strong><p>배달 주문은 매장에 문의 후 이용하시기 바랍니다. <span>일부 가맹점은 포장 및 매장 식사만 지원됩니다.</span></p><span className="banner-tag">함께하는 따뜻한 한 끼</span></div>
  <main id="finder" className="split"><aside className="sidebar" aria-label="가맹점 검색 및 목록"><section className="search-section"><div className="eyebrow">우리 동네 든든한 한 끼</div><h1>어디서 먹을까요<span>?</span></h1><p className="intro">가까운 급식카드 가맹점을 찾아보세요.</p><form onSubmit={e=>{e.preventDefault();setSearch(query);setSelectedId(null);setClusterIds(null)}}><div className="search-input"><Icon name="search"/><input aria-label="가맹점 이름 또는 주소" placeholder="가맹점 이름, 주소로 검색" value={query} onChange={e=>setQuery(e.target.value)}/><button className="search-submit" type="submit" aria-label="검색"><Icon name="search"/></button></div><div className="search-meta"><span><Icon name="pin" size={13}/> {region} 전체</span><button type="button" onClick={reset}><Icon name="reset" size={13}/> 초기화</button></div></form>
+<div className="filter-section" aria-label="가맹점 유형 및 음식 종류 선택">
+  <div className="filter-label">가맹점 유형</div>
+  <div className="chips" role="group" aria-label="가맹점 유형">
+    {['전체', '일반음식점', '편의점', '베이커리/간식', '마트', '미분류'].map(type => (
+      <button
+        key={type}
+        type="button"
+        className={`chip ${category === type && !cuisine ? 'active' : ''}`}
+        aria-pressed={category === type && !cuisine}
+        onClick={() => {
+          setCategory(type)
+          setCuisine(null)
+          setQuery('')
+          setSearch('')
+          setSelectedId(null)
+          setClusterIds(null)
+        }}
+      >{type}</button>
+    ))}
+  </div>
+  <div className="filter-label">음식 종류 <span>(등록된 업종 정보 기준)</span></div>
+  <div className="chips" role="group" aria-label="음식 종류">
+    {CUISINE_OPTIONS.map(type => (
+      <button
+        key={type}
+        type="button"
+        className={`chip ${cuisine === type ? 'active' : ''}`}
+        aria-pressed={cuisine === type}
+        onClick={() => {
+          setCuisine(current => current === type ? null : type)
+          setCategory('전체')
+          setQuery('')
+          setSearch('')
+          setSelectedId(null)
+          setClusterIds(null)
+        }}
+      >{type}</button>
+    ))}
+  </div>
+</div>
 <VoiceSearch
   resultCount={sortedVisible.length}
   onRecognized={(text) => {
@@ -387,6 +431,7 @@ onClick={() => {
     setQuery(intent.query)
     setSearch(intent.query)
     setCategory(intent.category)
+    setCuisine(null)
 
     if (userLocation) setSortMode('distance')
 
@@ -420,7 +465,7 @@ onClick={() => {
  {clusterIds!==null&&<div className="cluster-selection"><span><Icon name="pin" size={14}/>선택한 묶음의 가맹점 {visible.length}곳</span><button onClick={clearRegion}>전체 목록 보기 ×</button></div>}
  <div className="store-list" aria-live="polite">{!sortedVisible.length?<div className="empty"><Icon name="search" size={32}/><h3>검색 결과가 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p><button onClick={reset}>필터 초기화</button></div>:sortedVisible.map(s=><article key={s.id} className={`store-card ${selectedId===s.id?'selected':''}`}><div className="store-top"><span className={`category-label ${color(s.category)}`}>{s.category}</span>{s.under10000==='Y'&&<span className="under-ten-badge">만원 이하{s.minMealPriceWon?` · ${s.minMealPriceWon.toLocaleString('ko-KR')}원~`:''}</span>}<span className="status closed">
   영업 여부 미확인
-</span></div><button className="store-title" aria-pressed={selectedId===s.id} onClick={()=>{setSelectedId(s.id);setSelectionRequest(n=>n+1)}}>{s.name}<span>›</span></button>{s.merchantId && reviewSummaries[s.merchantId] && (reviewSummaries[s.merchantId].reviewCount>0?<span className="store-rating">★ {reviewSummaries[s.merchantId].avgRating?.toFixed(1)}</span>:<span className="store-rating none">평가 없음</span>)}<p className="store-address">{s.address}</p><div className="store-details">
+</span></div><button className="store-title" aria-pressed={selectedId===s.id} onClick={()=>{setSelectedId(s.id);setSelectionRequest(n=>n+1)}}>{s.name}<span>›</span></button>{s.merchantId && reviewSummaries[s.merchantId] && (reviewSummaries[s.merchantId].reviewCount>0?<span className="store-rating">★ {reviewSummaries[s.merchantId].avgRating?.toFixed(1)}</span>:<span className="store-rating none">평가 없음</span>)}<p className="store-address">{s.address}</p>{cuisine && <p className="cuisine-match-reason">세부 업종: {s.naverCuisine || s.detailCategory || s.rawCategory}</p>}<div className="store-details">
   {s.phone && <span>{s.phone}</span>}
 </div><div className="menu-tags"><span className="meal-tag">방문 전 카드 사용 여부 확인</span>{s.menu?.map(m=><span key={m}>{m}</span>)}</div><div className="store-actions"><button onClick={()=>route(s)}><Icon name="arrow" size={15}/> 길찾기 ↗</button><button onClick={() => phone(s)}>
   <Icon name="phone" size={14}/> 전화 안내
