@@ -1,3 +1,5 @@
+import type { MealPrice } from './mealPrice.ts'
+
 export type SourceMerchant = {
   id: number
   name: string
@@ -20,6 +22,7 @@ export type MerchantRecord = {
   detailCategory: string
   phone?: string
   menu?: string[]
+  confirmedMeals?: MealPrice[]
   delivery?: boolean
   coordinates?: { lat: number; lng: number }
 

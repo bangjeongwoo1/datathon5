@@ -1,3 +1,6 @@
+import { validCoordinates, getWalkingRoute, registerWalkingRoute } from "./walkingRoute.js";
+import { registerGuideSpeech } from "./guideSpeech.js";
+import { registerGuideAi } from "./guideAi.js";
 import { pool } from "./db.js";
 import express from "express";
 import multer from "multer";
@@ -40,6 +43,9 @@ const allowedOrigins = [
 
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
+registerGuideSpeech(app);
+registerGuideAi(app, groq);
+registerWalkingRoute(app);
 
 // 음성 파일은 메모리에 임시 보관
 const upload = multer({
@@ -111,17 +117,6 @@ app.use((error, req, res, next) => {
   next(error);
 });
 
-function validCoordinates(lat, lng) {
-  return (
-    typeof lat === 'number' &&
-    typeof lng === 'number' &&
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    lat >= -90 && lat <= 90 &&
-    lng >= -180 && lng <= 180
-  );
-}
-
 // 후보를 줄이기 위한 직선거리.
 // 실제 안내 거리로는 사용하지 않음.
 function straightDistance(a, b, c, d) {
@@ -181,75 +176,13 @@ app.post('/api/walking-nearest', async (req, res) => {
     });
   }
 
-  async function getWalkingRoute(store) {
-    try {
-      const response = await fetch(
-        'https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1',
-        {
-          method: 'POST',
-          headers: {
-            appKey: process.env.TMAP_APP_KEY,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            startX: lng,
-            startY: lat,
-            endX: store.coordinates.lng,
-            endY: store.coordinates.lat,
-            startName: encodeURIComponent('현재 위치'),
-            endName: encodeURIComponent(store.name),
-            reqCoordType: 'WGS84GEO',
-            resCoordType: 'WGS84GEO',
-            searchOption: '10',
-          }),
-          signal: AbortSignal.timeout(12000),
-        }
-      );
-
-    if (!response.ok) {
-  const errorMessage = await response.text();
-
-  console.error('TMAP 응답 상태:', response.status);
-  console.error('TMAP 상세 오류:', errorMessage);
-
-  return null;
-}
-
-      const data = await response.json();
-
-      // 보행자 경로의 출발 지점에 총 이동거리가 들어 있음
-      const startPoint = data.features?.find(
-        f => f.properties?.pointType === 'SP'
-      );
-
-      const meters = Number(
-        startPoint?.properties?.totalDistance
-      );
-
-      if (!Number.isFinite(meters) || meters < 0) {
-        return null;
-      }
-
-      return {
-        id: store.id,
-        name: store.name,
-        address: store.address,
-        meters: Math.round(meters),
-      };
-    } catch (error) {
-      console.error('도보 경로 조회 실패:', error.message);
-      return null;
-    }
-  }
-
   const routes = [];
 
   // 한 번에 너무 많은 API 요청을 보내지 않도록 3개씩 조회
   for (let i = 0; i < candidates.length; i += 3) {
     const batch = candidates.slice(i, i + 3);
     const results = await Promise.all(
-      batch.map(getWalkingRoute)
+      batch.map(store => getWalkingRoute(lat, lng, store))
     );
 
     routes.push(...results.filter(r => r !== null));
@@ -264,7 +197,7 @@ app.post('/api/walking-nearest', async (req, res) => {
   routes.sort((a, b) => a.meters - b.meters);
 
   res.json({
-    nearest: routes[0],
+    nearest: { id: routes[0].id, name: routes[0].name, address: routes[0].address, meters: routes[0].meters },
     total: stores.length,
     compared: routes.length,
     attempted: candidates.length,
@@ -324,7 +257,14 @@ app.get("/api/merchants", async (req, res) => {
       n.address_check,
       n.match_status,
       s.in_under_10000,
-      s.min_meal_price_won
+      s.min_meal_price_won,
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'name', menu.name, 'price', menu.price_won
+        ) ORDER BY menu.price_won, menu.name)
+        FROM public.menus AS menu
+        WHERE menu.merchant_id = m.merchant_id AND menu.category = 'meal'
+      ), '[]'::jsonb) AS confirmed_meals
    FROM public.merchants AS m
    LEFT JOIN public.merchant_naver_info AS n
      ON m.merchant_id = n.merchant_id
