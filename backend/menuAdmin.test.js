@@ -84,8 +84,11 @@ test('목록: 상태 값이 이상하면 400, 대기 목록은 오래된 순', a
   assert.equal(calls.at(-1).params[1], 200);
 });
 
-test('승인: 관리자가 보낸 목록으로 가게 메뉴를 통째로 교체하고 하나의 트랜잭션으로 처리한다', async () => {
-  const { db, client } = fakeDb({ 'FOR UPDATE': pendingRow() });
+test('승인(교체): 관리자가 보낸 목록으로 가게 메뉴를 통째로 교체하고 하나의 트랜잭션으로 처리한다', async () => {
+  const { db, client } = fakeDb({
+    'FOR UPDATE': pendingRow(),
+    'DELETE FROM public.menus': { rows: [], rowCount: 5 },
+  });
   const result = await approveSubmission(db, 7, {
     items: [
       { name: '김치찌개', price_won: 9000, category: 'meal' },
@@ -93,19 +96,88 @@ test('승인: 관리자가 보낸 목록으로 가게 메뉴를 통째로 교체
     ],
     note: ' 확인함 ',
     reviewer: { id: 'u1' },
+    mode: 'replace',
   });
 
-  assert.deepEqual(result, { submission_id: 7, status: 'approved', merchant_id: '123', menu_count: 2 });
+  assert.deepEqual(result, {
+    submission_id: 7, status: 'approved', merchant_id: '123',
+    mode: 'replace', menu_count: 2, added: 2, updated: 0, removed: 5,
+  });
   const sqls = client.calls.map(c => c.sql);
   assert.equal(sqls[0], 'BEGIN');
   assert.ok(sqls[1].includes('FOR UPDATE'));
-  assert.ok(sqls[2].startsWith('DELETE FROM public.menus'));
+  assert.ok(sqls[2].includes('pg_advisory_xact_lock'));
+  assert.ok(sqls[3].startsWith('DELETE FROM public.menus'));
   assert.equal(sqls.filter(s => s.startsWith('INSERT INTO public.menus')).length, 2);
   assert.ok(sqls.some(s => s.includes("status = 'approved'")));
   assert.equal(sqls.at(-1), 'COMMIT');
   assert.equal(client.released, true);
   const update = client.calls.find(c => c.sql.includes("status = 'approved'"));
   assert.deepEqual(update.params, [7, 'u1', '확인함']);
+});
+
+test('승인(추가, 기본값): 같은 이름은 새 가격으로 바꾸고, 새 메뉴는 더하고, 나머지 기존 메뉴는 남긴다', async () => {
+  const { db, client } = fakeDb({
+    'FOR UPDATE': pendingRow(),
+    'SELECT menu_id, name FROM public.menus': {
+      rows: [
+        { menu_id: '11', name: '김치 찌개' }, // 띄어쓰기가 달라도 같은 메뉴로 본다
+        { menu_id: '12', name: '공기밥' },
+        { menu_id: '13', name: '콜라' },
+      ],
+    },
+  });
+  const result = await approveSubmission(db, 7, {
+    items: [
+      { name: '김치찌개', price_won: 9500, category: 'meal' },
+      { name: '라면', price_won: 5000, category: 'meal' },
+    ],
+    reviewer: { id: 'u1' },
+  });
+
+  assert.deepEqual(result, {
+    submission_id: 7, status: 'approved', merchant_id: '123',
+    mode: 'merge', menu_count: 4, added: 1, updated: 1, removed: 0,
+  });
+  const sqls = client.calls.map(c => c.sql);
+  assert.ok(!sqls.some(s => s.startsWith('DELETE')), '추가 모드는 기존 메뉴를 지우지 않는다');
+  const update = client.calls.find(c => c.sql.startsWith('UPDATE public.menus'));
+  assert.deepEqual(update.params, [['11'], '김치찌개', 9500, 'meal', 7]);
+  const inserts = client.calls.filter(c => c.sql.startsWith('INSERT INTO public.menus'));
+  assert.equal(inserts.length, 1);
+  assert.deepEqual(inserts[0].params, ['123', 7, '라면', 5000, 'meal']);
+  assert.equal(sqls.at(-1), 'COMMIT');
+});
+
+test('승인: 같은 가게의 승인이 동시에 일어나도 엉키지 않게 가게 단위로 잠근다', async () => {
+  const { db, client } = fakeDb({ 'FOR UPDATE': pendingRow() });
+  await approveSubmission(db, 7, { items: [{ name: '라면', price_won: 5000, category: 'meal' }], reviewer: {} });
+  const lock = client.calls.find(c => c.sql.includes('pg_advisory_xact_lock'));
+  assert.deepEqual(lock.params, ['menus:123']);
+});
+
+test('승인: 목록 안에 같은 이름이 두 번 있으면 마지막 것만 저장한다', async () => {
+  const { db, client } = fakeDb({ 'FOR UPDATE': pendingRow() });
+  const result = await approveSubmission(db, 7, {
+    items: [
+      { name: '라면', price_won: 4000, category: 'meal' },
+      { name: '라 면', price_won: 4500, category: 'meal' },
+    ],
+    reviewer: {},
+    mode: 'replace',
+  });
+  assert.equal(result.menu_count, 1);
+  const inserts = client.calls.filter(c => c.sql.startsWith('INSERT INTO public.menus'));
+  assert.deepEqual(inserts.map(c => c.params[3]), [4500]);
+});
+
+test('승인: 승인 방식이 merge/replace 가 아니면 400 이고 DB 를 건드리지 않는다', async () => {
+  const { db, client } = fakeDb({ 'FOR UPDATE': pendingRow() });
+  await assert.rejects(
+    approveSubmission(db, 7, { items: [{ name: '라면', price_won: 5000, category: 'meal' }], reviewer: {}, mode: 'delete-all' }),
+    e => e.status === 400
+  );
+  assert.equal(client.calls.length, 0);
 });
 
 test('승인: items 를 안 보내면 자동 확인(ok)된 항목만 저장한다', async () => {
@@ -192,4 +264,36 @@ test('승인·반려가 끝나면 보관 중이던 사진을 지운다', async (
 test('메모가 너무 길면 400', async () => {
   const { db } = fakeDb({ 'FOR UPDATE': pendingRow() });
   await assert.rejects(rejectSubmission(db, 7, { note: 'a'.repeat(501), reviewer: {} }), e => e.status === 400);
+});
+
+test('승인·반려가 끝나면 보관 중이던 사진을 여러 장 모두 지운다', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'menu-admin-multi-'));
+  process.env.MENU_PHOTO_DIR = dir;
+  try {
+    for (const action of ['approve', 'reject']) {
+      const files = [`${action}-1.jpg`, `${action}-2.png`, `${action}-3.webp`];
+      for (const file of files) await fs.writeFile(path.join(dir, file), 'x');
+      const { db, client } = fakeDb({ 'FOR UPDATE': pendingRow({ photo_path: files[0], photo_paths: files }) });
+      if (action === 'approve') {
+        await approveSubmission(db, 7, { items: [{ name: '밥', price_won: 5000, category: 'meal' }], reviewer: {} });
+      } else {
+        await rejectSubmission(db, 7, { reviewer: {} });
+      }
+      for (const file of files) await assert.rejects(fs.access(path.join(dir, file)), `${file} 이 지워져야 한다`);
+      assert.ok(client.calls.some(c => c.sql.includes('photo_paths = NULL')), 'DB 의 사진 목록도 비운다');
+    }
+  } finally {
+    delete process.env.MENU_PHOTO_DIR;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('사진 이름: 몇 번째 사진인지로 고르고, 없는 번호는 null', async () => {
+  const { getPhotoName } = await import('./menuAdmin.js');
+  const { db } = fakeDb({ 'SELECT photo_path, photo_paths': { rows: [{ photo_path: 'a.jpg', photo_paths: ['a.jpg', 'b.png'] }] } });
+  assert.equal(await getPhotoName(db, 7), 'a.jpg');
+  assert.equal(await getPhotoName(db, 7, 1), 'b.png');
+  assert.equal(await getPhotoName(db, 7, 2), null);
+  const old = fakeDb({ 'SELECT photo_path, photo_paths': { rows: [{ photo_path: 'old.jpg', photo_paths: null }] } });
+  assert.equal(await getPhotoName(old.db, 7), 'old.jpg');
 });

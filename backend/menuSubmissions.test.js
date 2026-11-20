@@ -222,3 +222,59 @@ test('DB 저장이 실패하면 방금 저장한 사진도 지운다', async () 
     assert.deepEqual(await fs.readdir(dir), []);
   });
 });
+
+test('제보 저장(여러 장): 사진을 올린 순서대로 모두 저장하고, 첫 장은 예전 칸(photo_path)에도 적는다', async () => {
+  await withTempPhotoDir(async dir => {
+    const db = fakeDb();
+    const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const result = await submitMenuPhoto(db, {
+      merchantId: '1',
+      photos: [{ buffer: PNG, mimeType: 'image/png' }, { buffer: JPG, mimeType: 'image/jpeg' }],
+      ocr: { model: 'm', items: [{ name: 'a', price_won: 8000, category: 'meal', status: 'ok', photo: 2 }], rejected: [] },
+    });
+    assert.equal(result.photo_count, 2);
+    const insert = db.calls.find(c => c.sql.includes('INSERT INTO public.menu_submissions'));
+    const photoPaths = insert.params[10];
+    assert.equal(photoPaths.length, 2);
+    assert.match(photoPaths[0], /\.png$/);
+    assert.match(photoPaths[1], /\.jpg$/);
+    assert.equal(insert.params[3], photoPaths[0]);
+    assert.deepEqual((await fs.readdir(dir)).sort(), [...photoPaths].sort());
+  });
+});
+
+test('제보 저장(여러 장): DB 저장이 실패하면 저장했던 사진을 모두 지운다', async () => {
+  await withTempPhotoDir(async dir => {
+    await assert.rejects(
+      submitMenuPhoto(fakeDb({ failInsert: true }), {
+        merchantId: '1',
+        photos: [{ buffer: PNG, mimeType: 'image/png' }, { buffer: PNG, mimeType: 'image/png' }, { buffer: PNG, mimeType: 'image/png' }],
+        ocr: { model: 'm', items: [{ name: 'a', price_won: 8000, category: 'meal', status: 'ok' }], rejected: [] },
+      }),
+      /db down/
+    );
+    assert.deepEqual(await fs.readdir(dir), []);
+  });
+});
+
+test('제보 저장(여러 장): 중간 사진 저장이 실패하면 앞서 저장한 사진도 지운다', async () => {
+  await withTempPhotoDir(async dir => {
+    await assert.rejects(
+      submitMenuPhoto(fakeDb(), {
+        merchantId: '1',
+        photos: [{ buffer: PNG, mimeType: 'image/png' }, { buffer: PNG, mimeType: 'image/gif' }],
+        ocr: { model: 'm', items: [], rejected: [] },
+      }),
+      /지원하지 않는 이미지 형식/
+    );
+    assert.deepEqual(await fs.readdir(dir), []);
+  });
+});
+
+test('보관 사진 목록: 여러 장 칸이 있으면 그것을, 예전 제보는 한 장 칸을 쓴다', async () => {
+  const { photoNamesOf } = await import('./menuSubmissions.js');
+  assert.deepEqual(photoNamesOf({ photo_path: 'a.jpg', photo_paths: ['a.jpg', 'b.png'] }), ['a.jpg', 'b.png']);
+  assert.deepEqual(photoNamesOf({ photo_path: 'a.jpg', photo_paths: null }), ['a.jpg']);
+  assert.deepEqual(photoNamesOf({ photo_path: null, photo_paths: null }), []);
+  assert.deepEqual(photoNamesOf(undefined), []);
+});

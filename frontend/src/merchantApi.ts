@@ -29,6 +29,7 @@ type DbMerchant = {
   in_under_10000?: 'Y' | 'N' | null
   min_meal_price_won?: number | string | null
   confirmed_meals?: unknown
+  menu_names?: unknown
 }
 
 type MerchantResponse = {
@@ -117,6 +118,9 @@ export async function loadRegionMerchants(
     const saturday = formatHours(row.saturday_open, row.saturday_close)
     const holiday = formatHours(row.holiday_open, row.holiday_close)
     const confirmedMeals = parseConfirmedMeals(row.confirmed_meals)
+    const menuNames = Array.isArray(row.menu_names)
+      ? row.menu_names.filter((name): name is string => typeof name === 'string' && name.trim() !== '')
+      : []
     return {
       // 기존 지도와 TMAP이 숫자형 ID를 사용하므로
       // 화면 내 임시 ID를 부여
@@ -164,6 +168,7 @@ export async function loadRegionMerchants(
       open: false,
       delivery: false,
       confirmedMeals,
+      ...(menuNames.length ? { menuNames } : {}),
       menu: confirmedMeals.map(meal => `${meal.name} ${meal.price.toLocaleString('ko-KR')}원`),
       hours: '',
       distance: 0,

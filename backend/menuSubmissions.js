@@ -97,17 +97,36 @@ export async function merchantExists(db, merchantId) {
   return (await findMerchant(db, merchantId)) !== null;
 }
 
+/** 보관 중인 사진 여러 장을 지운다. 없어도 오류로 보지 않는다. */
+export async function deletePhotos(names) {
+  await Promise.all((names ?? []).filter(Boolean).map(name => deletePhoto(name)));
+}
+
+/** 제보 행에서 보관 중인 사진 이름 목록을 꺼낸다. (예전 제보는 photo_path 한 장만 있다.) */
+export function photoNamesOf(row) {
+  if (Array.isArray(row?.photo_paths) && row.photo_paths.length) return row.photo_paths.filter(Boolean);
+  return row?.photo_path ? [row.photo_path] : [];
+}
+
 /**
  * OCR 결과를 검수 대기 제보로 저장한다.
  * 사진을 먼저 저장하고 DB에 넣으며, DB 저장이 실패하면 사진도 지운다.
  *
  * @param db      pg Pool 또는 query(sql, params)를 가진 객체
- * @param options { merchantId, merchant?, buffer, mimeType, ocr: { items, rejected, model }, user? }
+ * @param options { merchantId, merchant?, photos: [{ buffer, mimeType }], ocr: { items, rejected, model }, user? }
+ *   photos: 올린 순서대로의 사진(최대 5장). 예전처럼 buffer, mimeType 한 장만 줘도 된다.
  *   merchant: findMerchant 가 찾은 { name, address }. 제출 당시의 가게 이름·주소로 함께 저장한다.
  *   user: 로그인 기능이 붙으면 { id, email }. 아직 없으면 비워 둔다.
  */
-export async function submitMenuPhoto(db, { merchantId, merchant, buffer, mimeType, ocr, user }) {
-  const photoPath = await savePhoto(buffer, mimeType);
+export async function submitMenuPhoto(db, { merchantId, merchant, photos, buffer, mimeType, ocr, user }) {
+  const list = photos ?? [{ buffer, mimeType }];
+  const photoPaths = [];
+  try {
+    for (const photo of list) photoPaths.push(await savePhoto(photo.buffer, photo.mimeType));
+  } catch (error) {
+    await deletePhotos(photoPaths).catch(() => {});
+    throw error;
+  }
 
   try {
     const hasUncertain = ocr.items.some(item => item.status === 'uncertain');
@@ -115,20 +134,21 @@ export async function submitMenuPhoto(db, { merchantId, merchant, buffer, mimeTy
     const result = await db.query(
       `INSERT INTO public.menu_submissions
          (merchant_id, submitted_by, submitted_email, photo_path,
-          items, rejected, model, has_uncertain, merchant_name, merchant_address)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10)
+          items, rejected, model, has_uncertain, merchant_name, merchant_address, photo_paths)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11::text[])
        RETURNING submission_id, status, created_at`,
       [
         merchantId,
         user?.id ?? null,
         user?.email ?? null,
-        photoPath,
+        photoPaths[0], // 예전 코드와 맞추기 위해 첫 장을 함께 적는다.
         JSON.stringify(ocr.items),
         JSON.stringify(ocr.rejected ?? []),
         ocr.model ?? null,
         hasUncertain,
         merchant?.name ?? null,
         merchant?.address ?? null,
+        photoPaths,
       ]
     );
 
@@ -140,11 +160,12 @@ export async function submitMenuPhoto(db, { merchantId, merchant, buffer, mimeTy
       merchant_id: merchantId,
       model: ocr.model ?? null,
       has_uncertain: hasUncertain,
+      photo_count: photoPaths.length,
       items: ocr.items,
       rejected: ocr.rejected ?? [],
     };
   } catch (error) {
-    await deletePhoto(photoPath).catch(() => {});
+    await deletePhotos(photoPaths).catch(() => {});
     throw error;
   }
 }

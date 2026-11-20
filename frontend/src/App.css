@@ -68,3 +68,21 @@
 .search-section .chip{cursor:pointer}
 .search-section .chip:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 .cuisine-match-reason{margin-top:6px;font-size:11px;color:#2563eb}
+
+/* 검색어가 승인된 메뉴 이름에 걸렸을 때 카드에 붙는 표시 (예: "메뉴: 라면") */
+.menu-match-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eff5ff;
+  color: #1d4ed8;
+  border: 1px solid #bfd3fb;
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}

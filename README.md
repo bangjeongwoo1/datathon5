@@ -143,7 +143,7 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 
 ```text
 지도에서 가게 선택 → 메뉴판 사진 올리기 → OCR → 검수 대기(pending)
-   → 관리자 승인(/admin.html) → 그 가게 메뉴를 통째로 교체
+   → 관리자 승인(/admin.html) → 기존 메뉴에 추가(기본) 또는 통째로 교체
    → "만원 이하 식사" 필터와 카드 표시
 ```
 

@@ -3,6 +3,7 @@ import { toMerchant } from './merchantData.ts'
 import type { MerchantRecord } from './merchantData.ts'
 import { matchesCuisine } from './cuisineFilter.ts'
 import type { CuisineType } from './cuisineFilter.ts'
+import { matchesSearch } from './menuSearch.ts'
 
 export type Merchant = MerchantRecord
 
@@ -21,23 +22,14 @@ export function filterMerchants(
   items: Merchant[],
   filters: Filters
 ) {
-  const query = filters.query.trim().toLocaleLowerCase()
-
   return items.filter(store => {
     const categoryMatches =
       filters.category === '전체' ||
       store.category === filters.category
 
-    const searchable = [
-      store.name,
-      store.address,
-      store.rawCategory,
-      store.detailCategory,
-    ].join(' ').toLocaleLowerCase()
-
     const cuisineMatches = !filters.cuisine || matchesCuisine(store, filters.cuisine)
     const underTenMatches = !filters.underTenOnly || store.under10000 === 'Y'
 
-    return categoryMatches && cuisineMatches && underTenMatches && searchable.includes(query)
+    return categoryMatches && cuisineMatches && underTenMatches && matchesSearch(store, filters.query)
   })
 }

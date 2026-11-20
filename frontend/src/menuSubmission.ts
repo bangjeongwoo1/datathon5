@@ -2,11 +2,15 @@
 // 화면(MenuUploadModal)과 분리해 두어 브라우저 없이 테스트할 수 있다.
 import { apiUrl } from './apiUrl.ts'
 
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 서버 제한과 같다.
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 서버 제한과 같다(사진 한 장당).
+export const MAX_PHOTOS = 5 // 한 번에 올릴 수 있는 사진 장수. 서버 제한과 같다.
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
-// AI가 메뉴를 읽는 데 걸리는 시간(혼잡하면 예비 모델로 전환)을 고려한 제한 시간
-const SUBMIT_TIMEOUT_MS = 90_000
+// AI가 메뉴를 읽는 데 걸리는 시간(혼잡하면 예비 모델로 전환)을 고려한 제한 시간.
+// 사진은 서버가 한 장씩(동시에 2장까지) 읽으므로, 장수가 많을수록 넉넉하게 기다린다.
+export function submitTimeoutMs(photoCount: number): number {
+  return 90_000 + Math.max(0, photoCount - 1) * 45_000
+}
 
 export type MenuCategory = 'meal' | 'side' | 'drink' | 'alcohol' | 'unknown'
 
@@ -16,6 +20,7 @@ export type SubmittedItem = {
   price_text: string
   category: MenuCategory
   status: 'ok' | 'uncertain'
+  photo?: number // 몇 번째 사진(1부터)에서 읽었는지. 사진을 여러 장 올렸을 때 붙는다.
 }
 
 export type MenuSubmission = {
@@ -23,6 +28,7 @@ export type MenuSubmission = {
   status: 'pending' | 'approved' | 'rejected'
   merchant_id: string
   has_uncertain: boolean
+  photo_count?: number
   items: SubmittedItem[]
   rejected: { name: string; price_text: string; reason: string }[]
 }
@@ -51,6 +57,33 @@ export function validateImageFile(file: { type: string; size: number }): string 
   return null
 }
 
+type PickedFile = { name: string; type: string; size: number; lastModified?: number }
+
+/**
+ * 이미 고른 사진에 새로 고른 사진을 더한다. 형식·용량이 맞지 않거나 이미 고른 사진은 빼고,
+ * 최대 장수를 넘으면 앞에서부터 MAX_PHOTOS 장까지만 남긴다. 뺀 이유가 있으면 error 에 담는다.
+ */
+export function addPhotos<T extends PickedFile>(current: T[], picked: T[]): { files: T[]; error: string | null } {
+  const files = [...current]
+  const problems: string[] = []
+  const sameFile = (a: T, b: T) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified
+
+  for (const file of picked) {
+    const problem = validateImageFile(file)
+    if (problem) {
+      problems.push(`${file.name}: ${problem}`)
+      continue
+    }
+    if (files.some(existing => sameFile(existing, file))) continue
+    if (files.length >= MAX_PHOTOS) {
+      problems.push(`사진은 한 번에 최대 ${MAX_PHOTOS}장까지 올릴 수 있어요.`)
+      break
+    }
+    files.push(file)
+  }
+  return { files, error: problems.length ? problems.join('\n') : null }
+}
+
 export function formatWon(value: number): string {
   return `${value.toLocaleString('ko-KR')}원`
 }
@@ -72,7 +105,8 @@ export function categoryLabel(category: MenuCategory): string {
 
 type SubmitOptions = {
   merchantId: string
-  file: Blob
+  files?: Blob[] // 여러 장(최대 5장). 올린 순서가 사진 번호가 된다.
+  file?: Blob // 한 장만 보낼 때(예전 방식)
   accessToken?: string | null // 로그인한 사용자의 토큰. 서버가 검증하기 시작하면 사용된다.
   signal?: AbortSignal
   fetchImpl?: typeof fetch
@@ -80,10 +114,15 @@ type SubmitOptions = {
 
 /** 가게의 메뉴판 사진을 제보한다. 성공하면 검수 대기 상태의 제보 결과를 돌려준다. */
 export async function submitMenuPhoto(options: SubmitOptions): Promise<MenuSubmission> {
-  const { merchantId, file, accessToken, signal, fetchImpl = fetch } = options
+  const { merchantId, accessToken, signal, fetchImpl = fetch } = options
+  const files = options.files ?? (options.file ? [options.file] : [])
+  if (files.length === 0) throw new MenuSubmissionError('메뉴판 사진을 골라 주세요.', 400)
+  if (files.length > MAX_PHOTOS) {
+    throw new MenuSubmissionError(`사진은 한 번에 최대 ${MAX_PHOTOS}장까지 올릴 수 있어요.`, 400)
+  }
 
   const form = new FormData()
-  form.append('image', file)
+  for (const file of files) form.append('images', file)
 
   const headers: Record<string, string> = {}
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
@@ -94,7 +133,7 @@ export async function submitMenuPhoto(options: SubmitOptions): Promise<MenuSubmi
   const timer = setTimeout(() => {
     timedOut = true
     controller.abort()
-  }, SUBMIT_TIMEOUT_MS)
+  }, submitTimeoutMs(files.length))
   const abortFromCaller = () => controller.abort()
   signal?.addEventListener('abort', abortFromCaller)
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { supabase } from './supabaseClient'
 import { useAuth } from './useAuth'
-import { categoryLabel, formatWon, submitMenuPhoto, validateImageFile } from './menuSubmission'
+import { MAX_PHOTOS, addPhotos, categoryLabel, formatWon, submitMenuPhoto } from './menuSubmission'
 import type { MenuSubmission } from './menuSubmission'
 import './MenuUploadModal.css'
 
@@ -20,8 +20,8 @@ type Phase = 'idle' | 'uploading' | 'done'
 
 export default function MenuUploadModal({ merchantId, merchantName, onClose }: Props) {
   const { user, sessionLoading, signingIn, signInWithGoogle } = useAuth()
-  const [file, setFile] = useState<File | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  // 고른 사진(최대 5장)과 각각의 미리보기 주소. 같은 순서로 맞춰 둔다.
+  const [photos, setPhotos] = useState<{ file: File; url: string }[]>([])
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
   const [result, setResult] = useState<MenuSubmission | null>(null)
@@ -29,17 +29,22 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const previewUrlRef = useRef<string | null>(null)
+  // 창이 닫힐 때 미리보기 메모리를 돌려주기 위해 마지막 사진 목록을 기억해 둔다.
+  const photosRef = useRef(photos)
+  useEffect(() => {
+    photosRef.current = photos
+  }, [photos])
 
   const uploading = phase === 'uploading'
   const needLogin = REQUIRES_LOGIN && !user
+  const canAddMore = photos.length < MAX_PHOTOS
 
   useEffect(() => {
     dialogRef.current?.focus()
     return () => {
       // 창이 닫히면 진행 중인 전송을 취소하고 미리보기 메모리를 돌려준다.
       abortRef.current?.abort()
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+      for (const photo of photosRef.current) URL.revokeObjectURL(photo.url)
     }
   }, [])
 
@@ -51,27 +56,28 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
     if (event.key === 'Escape') close()
   }
 
-  const pickFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const picked = event.target.files?.[0]
+  const pickFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(event.target.files ?? [])
     event.target.value = '' // 같은 사진을 다시 골라도 반응하도록 비운다.
-    if (!picked) return
+    if (picked.length === 0) return
 
-    const problem = validateImageFile(picked)
-    if (problem) {
-      setError(problem)
-      return
-    }
+    const current = photos.map(photo => photo.file)
+    const { files, error: problem } = addPhotos(current, picked)
+    const added = files.slice(current.length).map(file => ({ file, url: URL.createObjectURL(file) }))
+    setPhotos([...photos, ...added])
+    setError(problem ?? '')
+  }
 
-    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
-    const url = URL.createObjectURL(picked)
-    previewUrlRef.current = url
-    setPreviewUrl(url)
-    setFile(picked)
+  const removePhoto = (index: number) => {
+    const target = photos[index]
+    if (!target) return
+    URL.revokeObjectURL(target.url)
+    setPhotos(photos.filter((_, i) => i !== index))
     setError('')
   }
 
   const submit = async () => {
-    if (!file || uploading) return
+    if (photos.length === 0 || uploading) return
 
     setError('')
     setPhase('uploading')
@@ -89,7 +95,7 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
 
       const submission = await submitMenuPhoto({
         merchantId,
-        file,
+        files: photos.map(photo => photo.file),
         accessToken,
         signal: controller.signal,
       })
@@ -138,6 +144,9 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
                 <li key={`${item.name}-${index}`}>
                   <span className="menu-upload-item-name">{item.name}</span>
                   <span className="menu-upload-item-tag">{categoryLabel(item.category)}</span>
+                  {(result.photo_count ?? 1) > 1 && item.photo && (
+                    <span className="menu-upload-item-tag">사진 {item.photo}</span>
+                  )}
                   <strong>{formatWon(item.price_won)}</strong>
                   {item.status === 'uncertain' && (
                     <span className="menu-upload-badge">확인 필요</span>
@@ -187,6 +196,7 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
           <div className="menu-upload-body">
             <ul className="menu-upload-guide">
               <li>메뉴 이름과 가격이 잘 보이게 찍어 주세요.</li>
+              <li>메뉴판이 여러 장이면 한 번에 최대 {MAX_PHOTOS}장까지 같이 올려 주세요.</li>
               <li>메뉴판만 찍어 주세요. 사람 얼굴이나 개인정보가 나오지 않게 해 주세요.</li>
               <li>제출한 사진은 관리자가 확인한 뒤에 삭제돼요.</li>
             </ul>
@@ -196,13 +206,30 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
               className="menu-upload-input"
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              onChange={pickFile}
+              multiple
+              onChange={pickFiles}
               tabIndex={-1}
               aria-hidden="true"
             />
 
-            {previewUrl ? (
-              <img className="menu-upload-preview" src={previewUrl} alt="선택한 메뉴판 사진 미리보기" />
+            {photos.length > 0 ? (
+              <ol className="menu-upload-thumbs" aria-label={`고른 사진 ${photos.length}장`}>
+                {photos.map((photo, index) => (
+                  <li key={photo.url}>
+                    <img src={photo.url} alt={`${index + 1}번째 메뉴판 사진`} />
+                    <span className="menu-upload-thumb-no">{index + 1}</span>
+                    <button
+                      type="button"
+                      className="menu-upload-thumb-remove"
+                      aria-label={`${index + 1}번째 사진 빼기`}
+                      onClick={() => removePhoto(index)}
+                      disabled={uploading}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ol>
             ) : (
               <button
                 type="button"
@@ -210,7 +237,7 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
                 onClick={() => inputRef.current?.click()}
                 disabled={uploading}
               >
-                사진 선택하기 (JPG·PNG·WEBP, 5MB 이하)
+                사진 선택하기 (최대 {MAX_PHOTOS}장, 한 장당 5MB 이하, JPG·PNG·WEBP)
               </button>
             )}
 
@@ -221,14 +248,16 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
             )}
             {uploading && (
               <p className="menu-upload-hint" role="status">
-                메뉴판을 읽고 있어요… 최대 1분 정도 걸릴 수 있어요. 창을 닫지 말아 주세요.
+                {photos.length > 1
+                  ? `메뉴판 사진 ${photos.length}장을 읽고 있어요… 몇 분 걸릴 수 있어요. 창을 닫지 말아 주세요.`
+                  : '메뉴판을 읽고 있어요… 최대 1분 정도 걸릴 수 있어요. 창을 닫지 말아 주세요.'}
               </p>
             )}
 
             <div className="menu-upload-actions">
-              {previewUrl && (
+              {photos.length > 0 && canAddMore && (
                 <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}>
-                  다른 사진 고르기
+                  사진 추가 ({photos.length}/{MAX_PHOTOS})
                 </button>
               )}
               <button type="button" onClick={onClose} disabled={uploading}>
@@ -238,9 +267,9 @@ export default function MenuUploadModal({ merchantId, merchantName, onClose }: P
                 type="button"
                 className="primary"
                 onClick={submit}
-                disabled={!file || uploading}
+                disabled={photos.length === 0 || uploading}
               >
-                {uploading ? '분석 중…' : '제출하기'}
+                {uploading ? '분석 중…' : photos.length > 1 ? `${photos.length}장 제출하기` : '제출하기'}
               </button>
             </div>
           </div>

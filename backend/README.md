@@ -70,6 +70,7 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 | `naver_cuisine`, `naver_classification`, `address_check` | `Cuisine`, `네이버기반판별`, `주소확인` |
 | `weekday_*`, `saturday_*`, `holiday_*` | 평일·토요일·**공휴일** 영업시간(원본에는 일요일이 없습니다) |
 | `in_under_10000`, `min_meal_price_won`, `confirmed_meals` | 승인된 메뉴 기준 판정과 확정 식사 메뉴 |
+| `menu_names` | 메뉴 이름 검색용. 승인된 메뉴 이름 전체(식사·사이드·음료·주류, 중복 제거). 승인된 메뉴가 없으면 `null` |
 
 판별불가·주점의심 가게도 데이터 그대로 포함합니다(크롤링으로 갱신할 예정이라 거르는 규칙을 두지 않았습니다). 정렬은 번호 순입니다.
 
@@ -77,7 +78,7 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 
 ```text
 지도에서 가게 선택 → 메뉴판 사진 올리기 → OCR → menu_submissions(pending)
-   → 관리자 승인(/admin.html) → menus 반영(그 가게 메뉴를 통째로 교체, AI 원본 결과는 제보에 보관)
+   → 관리자 승인(/admin.html) → menus 반영(기존 메뉴에 추가 또는 통째로 교체, AI 원본 결과는 제보에 보관)
    → "만원 이하 식사" 필터와 카드 표시
 ```
 
@@ -93,8 +94,8 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 사진 업로드 → 형식·용량 검사 → Gemini로 메뉴·가격 추출 → 서버에서 가격 재검증 → JSON 반환
 ```
 
-1. **업로드**: `multipart/form-data`의 `image` 필드로 보냅니다. JPG·PNG·WEBP, 5MB 이하만 받고, 파일 앞부분(매직 바이트)으로 실제 이미지 형식인지도 확인합니다.
-2. **호출 제한**: IP당 시간당 10건, 하루 전체 200건입니다. (서버 재시작 시 초기화되는 메모리 방식)
+1. **업로드**: `multipart/form-data`의 `images` 필드로 **최대 5장**까지 보냅니다(예전처럼 `image` 필드로 한 장만 보내도 됩니다). JPG·PNG·WEBP, 한 장당 5MB 이하만 받고, 파일 앞부분(매직 바이트)으로 실제 이미지 형식인지도 확인합니다.
+2. **호출 제한**: IP당 시간당 10건, 하루 전체 200건입니다. 사진 한 장이 AI 호출 한 번이라 **장수만큼** 셉니다. (서버 재시작 시 초기화되는 메모리 방식)
 3. **추출**: 서버가 Gemini를 호출합니다. API 키는 서버에만 있습니다. 응답은 JSON 스키마(`name`, `price_text`, `price_won`, `category`, `uncertain`)로 강제하고, 이미지 속 글자는 지시가 아니라 데이터로만 취급하도록 지시합니다.
 4. **장애 대응**: 혼잡(503)이면 같은 모델로 최대 2번 재시도합니다. 30초 안에 응답이 없거나(타임아웃) 한도 초과(429)이면 `GEMINI_FALLBACK_MODEL`로 전환합니다.
 5. **가격 재검증** (`menuPrice.js`): 사진에 적힌 표기(`price_text`)를 서버가 직접 정수로 바꿉니다.
@@ -131,7 +132,7 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/menu-ocr
 가게를 지정해 메뉴판 사진을 **제보**합니다. 위의 OCR 결과를 `menu_submissions`에 **검수 대기(`pending`)로 저장**하고, 원본 사진을 비공개 폴더에 보관합니다. 관리자가 승인하기 전에는 지도에 반영되지 않습니다.
 
 ```powershell
-curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/2441/menu-submissions
+curl.exe -F "images=@menu1.jpg" -F "images=@menu2.jpg" http://localhost:3001/api/merchants/2441/menu-submissions
 ```
 
 - 요청: `:merchantId`는 지도가 쓰는 **`merchant_crawl_staging.merchant_id`**(예: `2441`)이고, 본문은 `multipart/form-data`의 `image` 필드(JPG·PNG·WEBP, 5MB 이하)
@@ -139,6 +140,10 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/2441/menu-subm
 - 실패: 사진 없음·형식 오류·잘못된 가맹점 번호 `400`, 없는 가맹점 `404`, 메뉴를 읽지 못함 `422`(저장하지 않음), 호출 제한 초과 `429`
 - 없는 가맹점은 AI를 호출하기 **전에** 거절하므로 비용이 들지 않습니다.
 - 가게 번호가 있는지는 `merchant_crawl_staging`에서 확인하고, 이때 가게 이름·주소도 함께 찾아 제보와 같이 저장합니다. staging 표가 없는 옛 로컬 DB에서만 `.env`에 `MERCHANT_SOURCE_TABLE=merchants`를 적어 씁니다. (`merchants`와 `merchant_crawl_staging`만 허용합니다.)
+- **사진 여러 장(최대 5장)**: 메뉴판이 여러 장이면 한 제보로 묶어 올립니다. 서버는 사진을 **한 장씩 따로** Gemini에 보내고(동시에 2장까지) 결과를 합칩니다. 한 요청에 여러 장을 넣으면 요청 크기 20MB 제한에 걸릴 수 있어서입니다. (`menuPhotoBatch.js`)
+  - 메뉴마다 몇 번째 사진에서 읽었는지(`photo`, 1부터)가 붙습니다.
+  - 같은 이름·같은 가격이 여러 사진에 나오면 하나만 남기고, 같은 이름인데 가격이 다르면 둘 다 남겨 '확인 필요'로 표시합니다.
+  - 한 장이라도 AI 호출이 실패하면 저장하지 않습니다(일부만 반영되면 빠진 메뉴를 알아채기 어렵기 때문).
 - 사진은 `backend/uploads/menu-photos/`에 서버가 정한 이름으로 저장됩니다(Git에 올라가지 않음). 관리자가 승인·반려하면 삭제합니다. 폴더는 `MENU_PHOTO_DIR`로 바꿀 수 있습니다.
 - DB 저장이 실패하면 방금 저장한 사진도 함께 지웁니다.
 - 로그인한 사용자가 올리면 제출자(`submitted_by`, `submitted_email`)가 기록되고, 로그인하지 않아도 제보는 받습니다. (`auth.js`의 `attachUser`)
@@ -151,12 +156,16 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/2441/menu-subm
 | 주소 | 하는 일 |
 | --- | --- |
 | `GET /api/admin/submissions?status=pending\|approved\|rejected` | 제보 목록(대기는 오래된 순) |
-| `GET /api/admin/submissions/:id` | 제보 상세(OCR 결과 전체) |
-| `GET /api/admin/submissions/:id/photo` | 원본 사진(관리자만, 브라우저에 저장되지 않음) |
-| `POST /api/admin/submissions/:id/approve` | 승인. 본문 `{ items: [{name, price_won, category}], note? }` |
+| `GET /api/admin/submissions/:id` | 제보 상세(OCR 결과 전체, 지금 그 가게에 등록된 메뉴 `current_menus`) |
+| `GET /api/admin/submissions/:id/photos/:index` | 원본 사진(0부터, 최대 5장). 관리자만, 브라우저에 저장되지 않음. 예전 주소 `/photo`는 첫 장 |
+| `POST /api/admin/submissions/:id/approve` | 승인. 본문 `{ items: [{name, price_won, category}], mode?: "merge"|"replace", note? }` |
 | `POST /api/admin/submissions/:id/reject` | 반려. 본문 `{ note? }` |
 
-- 승인하면 **한 트랜잭션 안에서** 그 가게의 기존 메뉴를 모두 지우고 승인한 목록으로 교체합니다. 중간에 실패하면 아무것도 바뀌지 않습니다.
+- 승인 방식(`mode`)은 두 가지이고, 둘 다 **한 트랜잭션 안에서** 처리해 중간에 실패하면 아무것도 바뀌지 않습니다.
+  - `merge`(기본): **기존 메뉴에 추가**합니다. 이름이 같은 메뉴(띄어쓰기·대소문자 무시)는 새 가격·분류로 바꾸고, 이번 목록에 없는 기존 메뉴는 그대로 둡니다. 메뉴판이 여러 장인 가게를 위한 방식입니다.
+  - `replace`: 기존 메뉴를 모두 지우고 이번 목록으로 **통째로 교체**합니다. 메뉴판이 새로 바뀌었을 때 씁니다.
+  - 목록 안에 같은 이름이 두 번 있으면 마지막 것만 저장합니다. 같은 가게의 승인이 동시에 들어와도 엉키지 않게 가게 단위로 잠급니다.
+  - 응답의 `added`, `updated`, `removed`, `menu_count`로 무엇이 바뀌었는지 알 수 있습니다.
 - 서버가 보낸 목록을 다시 검사합니다(이름 100자 이하, 가격 500~100,000원 정수, 분류 meal/side/drink/alcohol, 최대 300개). `items`를 안 보내면 AI가 확신한 항목(`ok`)만 저장합니다.
 - 만원을 넘는 메뉴나 사이드·음료·주류도 모두 `menus`에 저장됩니다. 만원은 저장할 때 거르는 기준이 아니라 조회할 때 계산하는 기준입니다. 관리자가 뺀 메뉴와 AI가 걸러 낸 메뉴는 저장되지 않지만, AI가 읽은 원본(`menu_submissions.items`, `rejected`)은 승인 후에도 남습니다.
 - 이미 처리된 제보를 다시 승인·반려하면 `409`입니다. 반려는 기존 승인 메뉴를 건드리지 않습니다.
@@ -179,7 +188,7 @@ curl.exe -F "image=@menu.jpg" http://localhost:3001/api/merchants/2441/menu-subm
 | `menus` | 관리자가 승인한 확정 메뉴. 지도와 필터는 이 테이블만 봅니다. |
 | `merchant_menu_summary` | 가게(`merchant_id`)당 한 줄. 식사 최저가와 **`in_under_10000`**(`Y`: 식사 중 1만 원 이하가 있음 / `N`: 식사는 있는데 모두 1만 원 초과 / 비어 있음: 아직 모름. 1만 원은 포함) |
 
-- 파일: `001_menu_tables.sql`(테이블), `002_menu_summary_and_snapshot.sql`(판정 뷰, 이름·주소 저장 열, RLS)
+- 파일: `001_menu_tables.sql`(테이블), `002_menu_summary_and_snapshot.sql`(판정 뷰, 이름·주소 저장 열, RLS), `004_menu_submission_photos.sql`(제보 하나에 사진 여러 장: `photo_paths`. 추가만 하는 변경이라 **새 서버를 배포하기 전에** `node migrate.js`로 먼저 적용)
 - 적용: `cd backend; node migrate.js` (적용한 파일은 건너뛰며, `.env`의 `DB_*`가 가리키는 DB에 적용됩니다.)
 - 메뉴 제보·확정 메뉴·리뷰의 `merchant_id`는 **`merchant_crawl_staging`**을 가리켜야 합니다. 아직 옛 `merchants`를 가리키는 DB에서는 `migrations/later/003_switch_to_crawl_staging.sql`을 Supabase SQL Editor에서 직접 실행합니다. (이 폴더는 `migrate.js`가 읽지 않아 실수로 적용되지 않습니다.)
   - 옛 번호(`CC-000001`)를 새 번호로 바꾸는 기준: 이름이 같고 도로명+건물번호가 같은 가게가 정확히 한 곳이면 그 번호로, 못 찾으면 이름과 시군구가 같은 가게가 정확히 한 곳일 때만 바꿉니다. 모호하거나 못 찾는 번호가 하나라도 있으면 어떤 번호인지 알리고 **전체를 되돌립니다.**

@@ -89,7 +89,13 @@ export function merchantListQueries({ region = '', search = '', limit = 100, off
         ) ORDER BY menu.price_won, menu.name)
         FROM public.menus AS menu
         WHERE menu.merchant_id = s.merchant_id AND menu.category = 'meal'
-      ), '[]'::jsonb) AS confirmed_meals
+      ), '[]'::jsonb) AS confirmed_meals,
+      -- 메뉴 이름 검색용: 승인된 메뉴 이름 전체(식사·사이드·음료·주류). 승인된 메뉴가 없으면 null.
+      (
+        SELECT array_agg(DISTINCT menu.name ORDER BY menu.name)
+        FROM public.menus AS menu
+        WHERE menu.merchant_id = s.merchant_id
+      ) AS menu_names
    FROM public.merchant_crawl_staging AS s
    LEFT JOIN public.merchant_menu_summary AS ms
      ON ms.merchant_id = s.merchant_id

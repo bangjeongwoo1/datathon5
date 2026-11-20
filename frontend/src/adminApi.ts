@@ -1,7 +1,7 @@
 // 관리자 검수 API 호출. 모든 요청에 로그인 토큰을 붙인다.
 import { apiUrl } from './apiUrl.ts'
 import type { MenuCategory, SubmittedItem } from './menuSubmission.ts'
-import type { ApprovedItem } from './adminItems.ts'
+import type { ApproveMode, ApprovedItem, CurrentMenu } from './adminItems.ts'
 
 export type SubmissionStatus = 'pending' | 'approved' | 'rejected'
 
@@ -23,7 +23,9 @@ export type SubmissionDetail = SubmissionSummary & {
   rejected: { name: string; price_text: string; reason: string }[]
   model: string | null
   has_photo: boolean
+  photo_count?: number // 보관 중인 사진 장수(최대 5). 승인·반려 후에는 0
   review_note: string | null
+  current_menus: CurrentMenu[] // 지금 이 가게에 등록된(승인된) 메뉴
 }
 
 export type MeInfo = { id: string; email: string; name: string; isAdmin: boolean }
@@ -90,18 +92,26 @@ export async function fetchSubmission(id: number, options: Options): Promise<Sub
 }
 
 /** 사진은 토큰이 필요해 <img src> 로 직접 못 부르므로, 받아서 브라우저 임시 주소로 바꾼다. */
-export async function fetchPhotoBlob(id: number, options: Options): Promise<Blob> {
-  return await (await request(`/api/admin/submissions/${id}/photo`, options)).blob()
+export async function fetchPhotoBlob(id: number, options: Options, index = 0): Promise<Blob> {
+  return await (await request(`/api/admin/submissions/${id}/photos/${index}`, options)).blob()
 }
 
 export async function approveSubmission(
   id: number,
-  payload: { items: ApprovedItem[]; note?: string },
+  payload: { items: ApprovedItem[]; note?: string; mode: ApproveMode },
   options: Options,
 ) {
   return (await (
     await request(`/api/admin/submissions/${id}/approve`, options, jsonInit(payload))
-  ).json()) as { status: 'approved'; merchant_id: string; menu_count: number }
+  ).json()) as {
+    status: 'approved'
+    merchant_id: string
+    mode: ApproveMode
+    menu_count: number
+    added: number
+    updated: number
+    removed: number
+  }
 }
 
 export async function rejectSubmission(id: number, payload: { note?: string }, options: Options) {

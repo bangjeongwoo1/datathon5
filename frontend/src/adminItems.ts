@@ -11,6 +11,7 @@ export type DraftItem = {
   price: string // 입력창 값 그대로(숫자만 남기지는 않는다)
   category: MenuCategory
   uncertain: boolean // AI가 확신하지 못한 항목: 사람이 꼭 눈으로 확인해야 한다.
+  photo?: number // 몇 번째 사진(1부터)에서 읽었는지. 사진이 여러 장일 때 화면에 표시한다.
 }
 
 export type ApprovedItem = { name: string; price_won: number; category: Exclude<MenuCategory, 'unknown'> }
@@ -25,6 +26,7 @@ export function toDrafts(items: SubmittedItem[]): DraftItem[] {
     price: String(item.price_won),
     category: item.category,
     uncertain: item.status === 'uncertain',
+    ...(item.photo ? { photo: item.photo } : {}),
   }))
 }
 
@@ -77,4 +79,45 @@ export function previewUnder10000(items: ApprovedItem[]): 'Y' | 'N' | null {
   const meals = items.filter((item) => item.category === 'meal')
   if (meals.length === 0) return null
   return meals.some((item) => item.price_won <= UNDER_LIMIT_WON) ? 'Y' : 'N'
+}
+
+// ---- 승인 방식(추가/교체) ----
+// 서버(backend/menuAdmin.js)의 규칙과 같다: 이름은 띄어쓰기·대소문자를 무시하고 비교한다.
+
+export type ApproveMode = 'merge' | 'replace'
+
+export type CurrentMenu = { name: string; price_won: number; category: string }
+
+export function normalizeMenuName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '')
+}
+
+export type MergeResult = {
+  items: { name: string; price_won: number; category: string }[] // 승인 후 이 가게에 남을 메뉴
+  added: number // 새로 더해지는 메뉴
+  updated: number // 이름이 같아서 새 가격·분류로 바뀌는 메뉴
+  kept: number // 이번 목록에 없어서 그대로 남는 기존 메뉴
+  removed: number // 교체 모드에서 지워지는 기존 메뉴
+}
+
+/** 승인하면 이 가게 메뉴가 어떻게 되는지 미리 계산한다. */
+export function previewApproval(current: CurrentMenu[], approved: ApprovedItem[], mode: ApproveMode): MergeResult {
+  // 같은 이름이 목록에 두 번 있으면 마지막 것을 쓴다(서버와 같음).
+  const incoming = new Map<string, ApprovedItem>()
+  for (const item of approved) incoming.set(normalizeMenuName(item.name), item)
+
+  if (mode === 'replace') {
+    return { items: [...incoming.values()], added: incoming.size, updated: 0, kept: 0, removed: current.length }
+  }
+
+  const existingNames = new Set(current.map(menu => normalizeMenuName(menu.name)))
+  const kept = current.filter(menu => !incoming.has(normalizeMenuName(menu.name)))
+  const updated = [...incoming.keys()].filter(key => existingNames.has(key)).length
+  return {
+    items: [...kept, ...incoming.values()],
+    added: incoming.size - updated,
+    updated,
+    kept: kept.length,
+    removed: 0,
+  }
 }

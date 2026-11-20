@@ -23,6 +23,8 @@ export type MerchantRecord = {
   phone?: string
   menu?: string[]
   confirmedMeals?: MealPrice[]
+  // 메뉴 이름 검색용: 관리자가 승인한 메뉴 이름 전체(식사·사이드·음료). 승인된 메뉴가 없으면 비어 있다.
+  menuNames?: string[]
   delivery?: boolean
   coordinates?: { lat: number; lng: number }
 
