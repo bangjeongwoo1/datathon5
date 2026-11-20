@@ -195,3 +195,17 @@ test('추천 후보를 사용자 선택으로 전달하거나 표현하지 않�
     assert.match(messages[0].content, /선택하신/);
   });
 });
+
+test('전화 제안 맥락을 모델에 전달하고 인식 오차의 전화 동의를 call 계약으로 돌려준다', async () => {
+  let messages;
+  await withServer({ chat: { completions: { create: async input => {
+    messages = input.messages;
+    return { choices: [{ message: { content: '{"action":"call","query":null,"reply":null}' } }] };
+  } } } }, async post => {
+    const response = await post('/api/guide-intent', { text: '응 전하 연결해줘', hasCallOffer: true, selectedName: '조회 식당' });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { action: 'call' });
+    assert.equal(JSON.parse(messages[1].content).hasCallOffer, true);
+    assert.match(messages[0].content, /불분명하거나 질문·거절이면 call로 처리하지/);
+  });
+});

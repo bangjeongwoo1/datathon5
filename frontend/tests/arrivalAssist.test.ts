@@ -58,6 +58,7 @@ test('가게 핀과 보행 경로 끝이 달라도 경로 끝에서는 전화 �
   assert.equal(estimateRouteEnd({ ...point, accuracy: 5 }, undefined, 0), null)
   assert.equal(estimateRouteEnd({ ...point, accuracy: 5 }, point, 20), null)
   assert.equal(arrivalCommand('알았어', true), 'accept-call')
+  assert.equal(arrivalCommand('응, 전화 연결해줘', true), 'accept-call')
   assert.equal(arrivalCommand('알았어', false), null)
   assert.equal(arrivalCommand('길 안내해줘', true), null)
 })

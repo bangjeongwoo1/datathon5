@@ -19,7 +19,7 @@ import './VoiceGuide.css'
 
 type Fix = Point & { accuracy: number }
 type Query = { terms: string; category: string; budget: number | null }
-type Intent = { action: 'search' | 'navigate' | 'closer' | 'remaining' | 'sign' | 'yes' | 'no' | 'reply'; query?: Query; reply?: string }
+type Intent = { action: 'search' | 'navigate' | 'call' | 'closer' | 'remaining' | 'sign' | 'yes' | 'no' | 'reply'; query?: Query; reply?: string }
 type Option = { store: Merchant; route: WalkingRoute; search: Query }
 type ArrivalState = { store: Merchant; reading: ArrivalReading; stage: 'nearby' | 'help-offered' | 'call-ready' | 'confirmed' }
 export type VoiceStatus = { enabled: boolean; message: string; heard: string; answer: string; error: string }
@@ -522,6 +522,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
             selectedName: selected?.name ?? '',
             recommendedName: routeOffer.current?.store.name ?? results[resultIndex]?.store.name ?? '',
             hasRouteOffer: Boolean(routeOffer.current),
+            hasCallOffer: arrivalRef.current?.stage === 'help-offered',
             history: conversation.current,
           }, combineVoiceSignals([signal, voiceTimeoutSignal(12000)]))
           if (interpreted.action !== 'yes' && interpreted.action !== 'no') {
@@ -539,6 +540,10 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       }
       if (signal.aborted) return
       if (intent.action === 'reply' && intent.reply) return say(intent.reply)
+      if (intent.action === 'call') {
+        if (arrivalRef.current?.stage === 'help-offered') return prepareArrivalCall()
+        return offerArrivalHelp()
+      }
       if (intent.action === 'navigate') {
         const terms = intent.query?.terms.trim()
         const matches = terms ? stores.filter(store => store.name.includes(terms)) : []

@@ -39,7 +39,7 @@ export function arrivalCommand(text: string, helpOffered: boolean): ArrivalComma
   const compact = raw.replace(/[\s,.!。！]/g, '')
   if (!/[?？]$/.test(raw) && /^(?:입구(?:를)?찾았(?:어|어요)|입구확인완료|가게안에들어왔(?:어|어요)|도착확인완료)$/.test(compact)) return 'confirm'
   if (/전화(?:하지마|하지말아줘|안할래|안할게)|연결(?:하지마|하지말아줘)/.test(compact)) return 'decline-call'
-  if (!/[?？]$/.test(raw) && /^(?:전화(?:연결)?해(?:줘|주세요)|가게에전화(?:연결)?해(?:줘|주세요)|전화로도움요청|전화연결)$/.test(compact)) return 'accept-call'
+  if (!/[?？]$/.test(raw) && /^(?:(?:응|네|예|그래|좋아))?(?:전화(?:연결)?해(?:줘|주세요)|가게에전화(?:연결)?해(?:줘|주세요)|전화로도움요청|전화연결)$/.test(compact)) return 'accept-call'
   if (helpOffered && (spokenConsent(raw, 'call') === 'accept' || /^(?:연결해줘|전화부탁해)$/.test(compact))) return 'accept-call'
   if (helpOffered && (spokenConsent(raw, 'call') === 'decline' || /^(?:직접찾아볼게|직접찾아볼게요)$/.test(compact))) return 'decline-call'
   if (/입구.*(?:모르|못찾|안보|어려)|(?:잘)?모르겠|가게.*(?:못찾|안보)|도움이?필요/.test(compact) || /^(?:도와줘|도와주세요)$/.test(compact)) return 'help'
