@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadKakaoMaps, regionLabel } from './kakao'
-import type { MapCluster, MapClusterer, MapInstance, MapMarker, MapsSDK } from './kakao'
+import type { Coordinates, MapCluster, MapClusterer, MapInstance, MapMarker, MapsSDK } from './kakao'
 import type { Merchant } from './merchants'
 import { selectCluster } from './mapClusters'
-import { markerSvg } from './markerIcon'
+import { markerSvg, currentLocationSvg } from './markerIcon'
 import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
 import type { ViewportBounds } from './mapPositions'
 import { requestCurrentLocation } from './userLocation'
@@ -31,6 +31,7 @@ type Props = {
   centerRequest: number
   selectionRequest: number
   onLocationChange?: (position: { lat: number; lng: number }) => void
+  userLocation?: Coordinates | null
 }
 type ReadyMap = {
   maps: MapsSDK
@@ -43,6 +44,10 @@ function markerImage(maps:MapsSDK,store:Merchant,selected:boolean){
  const svg=markerSvg(fill)
  return new maps.MarkerImage(`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,new maps.Size(selected?36:28,selected?46:36))
 }
+function currentLocationMarkerImage(maps:MapsSDK){
+ const svg=currentLocationSvg()
+ return new maps.MarkerImage(`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,new maps.Size(26,26))
+}
 export default function KakaoMap({
   stores,
   region,
@@ -52,6 +57,7 @@ export default function KakaoMap({
   centerRequest,
   selectionRequest,
   onLocationChange,
+  userLocation,
 }: Props) {
  const container=useRef<HTMLDivElement>(null)
  const markerEntries=useRef<{marker:MapMarker;store:Merchant}[]>([])
@@ -179,6 +185,31 @@ useEffect(() => {
     new ready.maps.LatLng(center.lat, center.lng)
   )
 }, [ready, region, centerRequest])
+
+// 내 위치를 빨간 점으로 표시 (가맹점 핀과는 별도의 단일 마커, 위치가 바뀌면 이동만 시킴)
+useEffect(() => {
+  if (!ready) return
+  const { maps, map } = ready
+  if (!userLocation) {
+    currentLocationMarker.current?.setMap(null)
+    currentLocationMarker.current = null
+    return
+  }
+  const position = new maps.LatLng(userLocation.lat, userLocation.lng)
+  if (currentLocationMarker.current) {
+    currentLocationMarker.current.setPosition(position)
+  } else {
+    const marker = new maps.Marker({
+      position,
+      image: currentLocationMarkerImage(maps),
+      clickable: false,
+      zIndex: 10,
+      title: '내 위치',
+    })
+    marker.setMap(map)
+    currentLocationMarker.current = marker
+  }
+}, [ready, userLocation])
 
  function changeZoom(change:number){if(!ready)return;const level=Math.max(1,Math.min(10,ready.map.getLevel()+change));ready.map.setLevel(level)}
  return <><div ref={container} className="kakao-map-canvas" aria-label={`카카오맵 ${region} 가맹점 지도`}/>
