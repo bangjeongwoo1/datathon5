@@ -1,9 +1,11 @@
+import { combineVoiceSignals, voiceTimeoutSignal } from './voiceTransport.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiUrl } from './apiUrl'
 import { createGuideSpeech } from './guideSpeech'
 import { mealsWithinBudget } from './mealPrice'
 import { createHandsFree } from './recordedHandsFree'
+import { GuideLocationError, requestNavigationFix, watchNavigationFix } from './guideLocation'
 import { estimateArrival, arrivalCommand, merchantCallUrl, helpCallScript, requestMerchantCall } from './arrivalAssist'
 import type { ArrivalReading } from './arrivalAssist'
 import { guideSelection, normalizeVoiceCommand } from './voiceActivation'
@@ -20,7 +22,6 @@ type Intent = { action: 'search' | 'closer' | 'remaining' | 'sign' | 'yes' | 'no
 type Option = { store: Merchant; route: WalkingRoute; search: Query }
 type ArrivalState = { store: Merchant; reading: ArrivalReading; stage: 'nearby' | 'help-offered' | 'call-ready' | 'confirmed' }
 export type VoiceStatus = { enabled: boolean; message: string; heard: string; answer: string; error: string }
-class GuideLocationError extends Error {}
 class GuideApiError extends Error {
   status: number
   path: string
@@ -42,7 +43,7 @@ async function post<T>(path: string, body: unknown, signal: AbortSignal): Promis
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+    signal: combineVoiceSignals([signal, voiceTimeoutSignal(15000)]),
   })
   if (!response.ok) {
     const data = await response.json().catch(() => null)
@@ -60,30 +61,6 @@ function aiFailureMessage(error: unknown) {
     if (error.code === 'AI_INVALID_RESPONSE') return '대화 AI의 응답을 처리하지 못했어요. 같은 요청을 다시 말씀해 주세요.'
   }
   return '대화 AI가 이번 요청에 응답하지 못했어요. 잠시 후 다시 말씀해 주세요.'
-}
-
-function asFix(position: GeolocationPosition): Fix {
-  const { latitude, longitude, accuracy } = position.coords
-  return { lat: latitude, lng: longitude, accuracy }
-}
-
-function getFix(): Promise<Fix> {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new GuideLocationError('현재 브라우저가 위치 기능을 지원하지 않아요. 휴대폰 브라우저에서 열어 주세요.'))
-    const timer = setTimeout(() => reject(new GuideLocationError('현재 위치 응답이 늦어지고 있어요. 위치 기능을 켜고 다시 요청해 주세요.')), 10000)
-    navigator.geolocation.getCurrentPosition(
-      position => { clearTimeout(timer); resolve(asFix(position)) },
-      error => {
-        clearTimeout(timer)
-        reject(new GuideLocationError(error.code === 1
-          ? '브라우저에서 위치 접근을 허용하지 않았어요. 주소창의 사이트 설정에서 위치를 허용해 주세요.'
-          : error.code === 2
-            ? '현재 위치를 수신하지 못했어요. 기기의 위치 기능을 확인해 주세요.'
-            : '현재 위치를 확인하는 데 시간이 오래 걸려요. 잠시 뒤 다시 요청해 주세요.'))
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
-  })
 }
 
 function localIntent(text: string): Intent {
@@ -158,6 +135,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   const pending = useRef<AbortController | null>(null)
   const recording = useRef(false)
   const phoneRequested = useRef(false)
+  const phoneAppHidden = useRef(false)
   const voiceManuallyStopped = useRef(false)
   const waitingCommand = useRef<string | null>(null)
   const answerRequest = useRef<AbortController | null>(null)
@@ -190,15 +168,38 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   useEffect(() => {
     const hide = () => {
       if (document.hidden) {
+        phoneAppHidden.current = phoneRequested.current
         handsFree.stop('다른 화면을 보는 동안 마이크를 쉬고 있어요.')
         speech.stop()
-      } else if (!voiceManuallyStopped.current && !phoneRequested.current) {
+      } else if (!voiceManuallyStopped.current && (!phoneRequested.current || phoneAppHidden.current)) {
+        const returningFromPhone = phoneAppHidden.current
+        phoneAppHidden.current = false
+        phoneRequested.current = false
         handsFree.start()
+        if (returningFromPhone) {
+          if (arrivalRef.current) updateArrival({ ...arrivalRef.current, stage: 'nearby' })
+          say('전화 앱에서 돌아왔어요. 실제 통화 여부는 확인할 수 없어요. 잇다가 다시 듣고 있어요.')
+        }
       }
+    }
+    const leaveForPhone = () => {
+      if (phoneRequested.current) {
+        phoneAppHidden.current = true
+        handsFree.stop('전화 연결을 요청해 마이크 인식을 멈췄어요.')
+      }
+    }
+    const returnFromPhone = () => {
+      if (phoneRequested.current && phoneAppHidden.current) hide()
     }
     if (!document.hidden) handsFree.start()
     document.addEventListener('visibilitychange', hide)
-    return () => document.removeEventListener('visibilitychange', hide)
+    window.addEventListener('blur', leaveForPhone)
+    window.addEventListener('focus', returnFromPhone)
+    return () => {
+      document.removeEventListener('visibilitychange', hide)
+      window.removeEventListener('blur', leaveForPhone)
+      window.removeEventListener('focus', returnFromPhone)
+    }
   }, [handsFree, speech])
 
   function facts(items = results) {
@@ -219,7 +220,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       const answer = await post<{ reply: string }>('/api/guide-answer', {
         text: lastQuestion.current || '현재 선택된 가맹점과 확인된 메뉴를 설명해 주세요.',
         facts: facts(items), selectedName: option.store.name,
-      }, AbortSignal.any([request.signal, AbortSignal.timeout(12000)]))
+      }, combineVoiceSignals([request.signal, voiceTimeoutSignal(12000)]))
       if (request.signal.aborted) return
       if (typeof answer.reply !== 'string' || !answer.reply.trim()) throw new Error('Empty answer')
       setAiNotice('')
@@ -237,7 +238,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   }
 
   useEffect(() => {
-    if (!active || !navigator.geolocation) return
+    if (!active) return
     let previous = ''
     let lastStep = -1
     const turns = active.route.steps.map(step => ({
@@ -252,9 +253,8 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
         previous = message
       }
     }
-    const watch = navigator.geolocation.watchPosition(position => {
-      if (phoneRequested.current) return
-      const fix = asFix(position)
+    const receiveFix = (fix: Fix) => {
+      if (phoneRequested.current || document.hidden) return
       if (fix.accuracy > MAX_ACCURACY) {
         speakOnce('GPS 위치 오차가 커서 방향 안내를 잠시 멈췄어요.')
         return
@@ -295,9 +295,23 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       } else if (previous.includes('멈췄어요.')) {
         speakOnce('위치를 다시 확인했어요. 경로 안내를 재개합니다.')
       }
-    }, () => speakOnce('현재 위치를 확인할 수 없어 방향 안내를 잠시 멈췄어요.'),
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 })
-    return () => navigator.geolocation.clearWatch(watch)
+    }
+    let stopWatching: (() => void) | undefined
+    const resumeWatch = () => {
+      stopWatching?.()
+      stopWatching = undefined
+      if (!document.hidden && !phoneRequested.current) {
+        stopWatching = watchNavigationFix(receiveFix, message => speakOnce(`${message} 방향 안내를 잠시 멈췄어요.`))
+      }
+    }
+    resumeWatch()
+    document.addEventListener('visibilitychange', resumeWatch)
+    window.addEventListener('focus', resumeWatch)
+    return () => {
+      stopWatching?.()
+      document.removeEventListener('visibilitychange', resumeWatch)
+      window.removeEventListener('focus', resumeWatch)
+    }
   }, [active, speech])
 
   async function run(action: (signal: AbortSignal) => Promise<void>) {
@@ -382,8 +396,12 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     phoneRequested.current = true
     handsFree.stop('전화 연결을 요청해 마이크 인식을 멈췄어요.')
     const result = requestMerchantCall(store.phone)
+    if (result === 'unavailable') {
+      phoneRequested.current = false
+      if (!voiceManuallyStopped.current) handsFree.start()
+    }
     say(result === 'requested'
-      ? `${store.name} 번호로 전화 앱 연결을 요청했어요. 실제 발신은 기기에서 확인해 주세요. 통화를 마친 뒤 “통화 후 안내 재개”를 눌러 주세요.`
+      ? `${store.name} 번호로 전화 앱 연결을 요청했어요. 기기에 표시되는 발신 확인 절차를 따라 주세요. 전화 앱에서 이 화면으로 돌아오면 다시 들을게요.`
       : '이 기기에서 전화 앱을 열지 못했어요. 전화 연결 버튼으로 다시 요청할 수 있어요.')
   }
 
@@ -474,7 +492,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
             hasProposal: Boolean(proposal),
             previousSearch: active?.search ?? query.current,
             facts: facts(),
-          }, AbortSignal.any([signal, AbortSignal.timeout(12000)]))
+          }, combineVoiceSignals([signal, voiceTimeoutSignal(12000)]))
           if (interpreted.action !== 'yes' && interpreted.action !== 'no') {
             if (interpreted.query && intent.query?.budget != null) {
               interpreted.query.budget = intent.query.budget
@@ -514,7 +532,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
         if (!matches.length) return say(search.budget === null
           ? '조건에 맞는 가맹점을 찾지 못했어요.'
           : '이 가격에 주문할 수 있다고 등록된 메뉴를 찾지 못했어요.')
-        const fix = await getFix().catch(() => null)
+        const fix = await requestNavigationFix().catch(() => null)
         if (signal.aborted) return
         const hasLocation = fix && fix.accuracy <= MAX_ACCURACY
         const ranked = hasLocation ? matches.sort((a, b) =>
@@ -526,7 +544,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
         setResultIndex(0)
         return readOption(items, 0)
       }
-      const fix = await getFix()
+      const fix = await requestNavigationFix()
       if (signal.aborted) return
       if (fix.accuracy > MAX_ACCURACY) return say('GPS 위치 오차가 커요. 위치가 정확해지면 다시 요청해 주세요.')
       if (intent.action === 'yes' && proposal) {
@@ -563,7 +581,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     say(`${store.name}을 선택했어요. 현재 위치를 확인할게요.`)
     void run(async signal => {
       if (!store.coordinates) return say('가게 위치 좌표가 확인되지 않았어요.')
-      const fix = await getFix()
+      const fix = await requestNavigationFix()
       if (signal.aborted) return
       if (fix.accuracy > MAX_ACCURACY) return say('GPS 위치 오차가 커서 지금은 안내를 시작하기 어려워요.')
       const route = await post<WalkingRoute>('/api/walking-route', { ...fix, store }, signal)
@@ -591,8 +609,9 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
     } else {
       voiceManuallyStopped.current = false
       phoneRequested.current = false
+      const started = handsFree.start()
       const ready = await speech.unlock()
-      if (ready && handsFree.start()) say('“잇다야”라고 불러 주세요.')
+      if (ready && started) say('“잇다야”라고 불러 주세요.')
     }
   }
 
@@ -610,6 +629,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
   useEffect(() => {
     // Microphone permission is requested automatically; audio may still need a gesture.
     const prepareSound = () => {
+      handsFree.resumeFromGesture()
       if (!speech.isActive()) void speech.unlock()
       document.removeEventListener('pointerdown', prepareSound)
       document.removeEventListener('keydown', prepareSound)
@@ -620,7 +640,7 @@ export default function VoiceGuide({ stores, selected, onSelect, maximumPrice, o
       document.removeEventListener('pointerdown', prepareSound)
       document.removeEventListener('keydown', prepareSound)
     }
-  }, [speech])
+  }, [speech, handsFree])
 
   return <section className="voice-guide" aria-label="음성 길 안내">
     <button id="voice-mode-start" className="voice-mode-toggle" type="button" aria-pressed={voiceEnabled}

@@ -1,6 +1,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { apiUrl } from './apiUrl'
+import { createAudioRecorder, microphoneAvailabilityError, microphoneErrorMessage, recordingFileName } from './microphone'
+import { combineVoiceSignals, voiceTimeoutSignal } from './voiceTransport'
 type VoiceSearchProps = {
   onRecognized: (text: string) => void
   onRecordingChange?: (value: boolean) => void
@@ -14,6 +16,7 @@ export default function VoiceSearch({
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const requestRef = useRef<AbortController | null>(null)
 
   const [recording, setRecording] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -21,6 +24,7 @@ export default function VoiceSearch({
   const [error, setError] = useState('')
 
   useEffect(() => () => {
+    requestRef.current?.abort()
     const recorder = recorderRef.current
     if (recorder?.state === 'recording') {
       recorder.onstop = null
@@ -33,8 +37,9 @@ export default function VoiceSearch({
     setError('')
 
     try {
-      if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
-        setError('이 브라우저에서는 음성 녹음을 지원하지 않습니다.')
+      const unavailable = microphoneAvailabilityError()
+      if (unavailable) {
+        setError(unavailable)
         return
       }
 
@@ -45,7 +50,17 @@ export default function VoiceSearch({
       streamRef.current = stream
       chunksRef.current = []
 
-      const recorder = new MediaRecorder(stream)
+      const recorder = createAudioRecorder(stream)
+      recorder.onerror = () => {
+        recorder.onstop = null
+        if (recorder.state === 'recording') recorder.stop()
+        stream.getTracks().forEach(track => track.stop())
+        streamRef.current = null
+        setRecording(false)
+        setLoading(false)
+        onRecordingChange?.(false)
+        setError('휴대폰에서 녹음이 중단됐어요. 마이크를 다시 연결해 주세요.')
+      }
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -54,25 +69,36 @@ export default function VoiceSearch({
       }
 
       recorder.onstop = async () => {
+        setRecording(false)
+        onRecordingChange?.(false)
         stream.getTracks().forEach((track) => track.stop())
         streamRef.current = null
 
         const audio = new Blob(chunksRef.current, {
-          type: recorder.mimeType,
+          type: recorder.mimeType || chunksRef.current.find(chunk => chunk.type)?.type || '',
         })
 
+        if (!audio.size) {
+          setError('녹음된 소리가 없어요. 마이크 권한과 휴대폰의 마이크 접근 설정을 확인해 주세요.')
+          return
+        }
+
         const formData = new FormData()
-        formData.append('audio', audio, 'recording.webm')
+        formData.append('audio', audio, recordingFileName(audio.type))
 
         setLoading(true)
+        const request = new AbortController()
+        requestRef.current = request
 
         try {
           const response = await fetch(apiUrl('/api/stt'), {
             method: 'POST',
             body: formData,
+            signal: combineVoiceSignals([request.signal, voiceTimeoutSignal(15000)]),
           })
 
           const data = await response.json()
+          if (request.signal.aborted) return
 
           if (!response.ok) {
             throw new Error(data.error || '음성 인식 실패')
@@ -81,6 +107,7 @@ export default function VoiceSearch({
           setRecognizedText(data.text)
           onRecognized(data.text)
         } catch (err) {
+          if (request.signal.aborted) return
           setError(
             err instanceof Error ? err.message : '서버 연결 실패'
           )
@@ -93,8 +120,12 @@ export default function VoiceSearch({
       recorder.start()
       onRecordingChange?.(true)
       setRecording(true)
-    } catch {
-      setError('마이크 사용 권한을 확인해 주세요.')
+    } catch (error) {
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+      setRecording(false)
+      onRecordingChange?.(false)
+      setError(microphoneErrorMessage(error))
     }
   }
 
