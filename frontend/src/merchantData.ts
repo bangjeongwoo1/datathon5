@@ -21,6 +21,15 @@ export type MerchantRecord = {
   menu?: string[]
   delivery?: boolean
   coordinates?: { lat: number; lng: number }
+
+  // 네이버 크롤링 정보
+  naverCuisine?: string
+  naverClassification?: string
+  businessHours?: {
+    weekday?: string
+    saturday?: string
+    sunday?: string
+  }
 }
 
 const FOOD_SERVICE_INDUSTRIES = new Set(['한식', '일반대중음식', '중식', '일식', '패스트푸드', '양식'])
