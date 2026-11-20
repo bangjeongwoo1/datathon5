@@ -9,8 +9,9 @@ export type SourceMerchant = {
 
 export type MerchantRecord = {
   id: number
-  // DB의 merchant_id. 화면용 임시 번호(id)와 달리 지역을 다시 불러와도 바뀌지 않아,
-  // 메뉴판 사진 제보처럼 "어느 가게인지"를 서버에 알릴 때 쓴다. 정적 데이터에는 없다.
+  // DB의 실제 기본키(merchants.merchant_id, 예: "CC-000001"). 지도 클러스터링 등
+  // 기존 로직은 숫자 id를 계속 쓰므로 그대로 두고, 리뷰·메뉴판 사진 제보처럼 DB 행을
+  // 정확히 가리켜야 하는 기능은 이 값을 사용한다. 정적 생성 데이터 경로는 값이 없을 수 있음.
   merchantId?: string
   name: string
   address: string
