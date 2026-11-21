@@ -5,11 +5,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import MealcardMap from './MealcardMap'
 import type { Layers, MealcardMapHandle } from './MealcardMap'
-import type { MapData, Mode, Rec } from './types'
+import type { MapData, Mode, Place, Rec } from './types'
+import { applyHours, DAY_LABEL, SLOT_LABEL } from './hours'
+import type { Day, Hours, Slot } from './hours'
 import './mealcard.css'
 
 const fmt = (n: number) => n.toLocaleString('ko-KR')
-const DATA_URL = `${import.meta.env.BASE_URL}mealcard/map-data.json`
+const LIST_STEP = 100 // 권유 식당 목록을 한 번에 그리는 줄 수
+// 시군별 지도 데이터(public/mealcard/). 새 시군은 JSON을 넣고 여기에 한 줄 추가한다.
+const CITIES = [
+  { key: 'chuncheon', name: '춘천시', short: '춘천', file: 'map-data.json' },
+  { key: 'wonju', name: '원주시', short: '원주', file: 'map-data-wonju.json' },
+  { key: 'gangneung', name: '강릉시', short: '강릉', file: 'map-data-gangneung.json' },
+  { key: 'hongcheon', name: '홍천군', short: '홍천', file: 'map-data-hongcheon.json' },
+] as const
+type CityKey = (typeof CITIES)[number]['key']
+const dataUrl = (key: CityKey) => `${import.meta.env.BASE_URL}mealcard/${CITIES.find((c) => c.key === key)!.file}`
+// 춘천 데이터(2026-10-30)에는 규칙·출처 글이 들어 있지 않아 여기 둔다.
+const CHUNCHEON_RULES = '공식 업종이 일반음식점이고 식사형 업태인 곳만 봤어요. 술집·카페·편의점과 상호에 술집·비식당 표현이 있는 곳은 뺐고, 팀이 확인해 8곳을 더 뺐어요.'
+const CHUNCHEON_SOURCES = '춘천시 요식업소 현황(공공데이터포털 15003349, 2026-05-27), 춘천시 아동급식카드 가맹점(2026-08-26, 팀 전처리 4,395곳), 상가(상권)정보(15083033, 2026-06), 아동복지급식정보표준데이터(15034530), 초중등학교위치표준데이터(15021148, 2026-10). 춘천시 경계 © OpenStreetMap 기여자(ODbL). 지도 © Kakao. 거리는 직선거리.'
 
 function Seg({ value, onChange, items, label }: { value: string; onChange: (v: string) => void; items: [string, string][]; label: string }) {
   return (
@@ -58,7 +72,8 @@ const Close = ({ onClick, label = '닫기' }: { onClick: () => void; label?: str
 // 고른 학교 카드: 1km 안 가맹점·권유 식당 수와 가까운 권유 식당 바로가기
 function SchoolCard({ data, index, R, M, recs, onPick, onClose }: { data: MapData; index: number; R: number; M: Mode; recs: Rec[]; onPick: (d: Rec) => void; onClose: () => void }) {
   const s = data.schools[index]
-  const near = recs.filter((d) => d[7] === s.n)
+  // 이 학교가 가장 가까운 학교인 권유 식당. 학교에서 가까운 순으로 한 줄에 놓고 옆으로 밀어서 본다(강릉·홍천은 수백 곳).
+  const near = recs.filter((d) => d[7] === s.n).sort((a, b) => a[8] - b[8])
   return (
     <div className="mc-float mc-card">
       <div className="mc-card-head">
@@ -71,8 +86,11 @@ function SchoolCard({ data, index, R, M, recs, onPick, onClose }: { data: MapDat
         <div className="mc-cell brand"><div className="mc-muted xs">1km 안 권유 식당</div><div className="num brand">{s.rc[M][R]}곳</div></div>
       </div>
       {near.length > 0 && (
-        <div className="mc-chips">
-          {near.map((d) => <button key={d[5]} onClick={() => onPick(d)}><b>{d[2]}</b> {d[5]}</button>)}
+        <div className="mc-slider-wrap">
+          <div className="mc-muted xs">가까운 권유 식당 {fmt(near.length)}곳{near.length > 2 ? ' · 옆으로 밀어서 보기 ›' : ''}</div>
+          <div className="mc-chips mc-slider">
+            {near.map((d) => <button key={`${d[5]}-${d[3]}`} onClick={() => onPick(d)}><b>{d[2]}</b> {d[5]}</button>)}
+          </div>
         </div>
       )}
     </div>
@@ -80,29 +98,67 @@ function SchoolCard({ data, index, R, M, recs, onPick, onClose }: { data: MapDat
 }
 
 export default function MealcardApp() {
-  const [data, setData] = useState<MapData | null>(null)
+  const [city, setCity] = useState<CityKey>('chuncheon')
+  const cityInfo = CITIES.find((c) => c.key === city)!
+  const [raw, setData] = useState<MapData | null>(null)       // 시군 지도 데이터(받은 그대로)
+  const [hours, setHours] = useState<{ city: CityKey; h: Hours } | null>(null) // 가맹점 영업시간 판정(테스트)
+  const [slot, setSlot] = useState<Slot>('all')               // 시간대: 전체·점심·저녁
+  const [day, setDay] = useState<Day>('sat')                  // 요일: 토요일·일요일(공휴일)·평일(방학). 급식카드는 학기 중 주말·공휴일에 쓴다
   const [R, setR] = useState(100)
   const [M, setM] = useState<Mode>('미포함')
   const [layers, setLayers] = useState<Layers>({ ring: true, schoolRing: true, non: true })
   const [selected, setSelected] = useState<number | null>(null)
   const [tab, setTab] = useState('recs')
   const [q, setQ] = useState('')
-  const [dong, setDong] = useState<string | null>(null)       // 고른 행정동(없으면 춘천시 전체)
+  const [dong, setDong] = useState<string | null>(null)       // 고른 행정동(없으면 시군 전체)
   const [school, setSchool] = useState<number | null>(null)   // 고른 학교(지도에서 그 학교 1km 둘레를 그림)
   const [more, setMore] = useState(false)                     // 동네 탭: 가맹 식당 전체 보기
+  const [recMore, setRecMore] = useState({ key: '', n: LIST_STEP }) // 권유 식당 탭: 지금 그리는 줄 수(강릉처럼 수천 곳이면 한 번에 다 그리면 화면이 멈춘다)
   const [ctrlOpen, setCtrlOpen] = useState(false)             // 휴대폰: 조건 패널 펼침
   const [drawerOpen, setDrawerOpen] = useState(false)         // 휴대폰: 아래 목록 서랍 펼침
+  const [picked, setPicked] = useState<Place | null>(null)    // 동네 탭에서 고른 미가맹 식당
   const mapRef = useRef<MealcardMapHandle>(null)
 
+  // 시군 데이터 받기
   useEffect(() => {
-    fetch(DATA_URL).then((r) => r.json()).then(setData)
-  }, [])
+    let alive = true
+    fetch(dataUrl(city)).then((r) => r.json()).then((d: MapData) => { if (alive) setData(d) })
+    return () => { alive = false }
+  }, [city])
+  // 시군 영업시간 판정 받기(없으면 시간대 버튼을 막는다)
+  useEffect(() => {
+    let alive = true
+    fetch(`${import.meta.env.BASE_URL}mealcard/hours-${city}.json`).then((r) => r.json())
+      .then((h: Hours) => { if (alive) setHours({ city, h }) }).catch(() => {})
+    return () => { alive = false }
+  }, [city])
+  const cityHours = hours?.city === city ? hours.h : null
+  const hasHours = !!cityHours && cityHours.known.members + cityHours.known.cvs > 0
+  const activeSlot: Slot = hasHours ? slot : 'all'
+  // 고른 시간대에 여는 가맹점만으로 다시 계산한 데이터. 전체면 받은 그대로
+  const data = useMemo(() => (raw && cityHours ? applyHours(raw, cityHours, activeSlot, day) : raw), [raw, cityHours, activeSlot, day])
+  // 시군을 바꾸면 지난 데이터와 고른 것들을 푼다
+  const changeCity = (c: CityKey) => {
+    if (c === city) return
+    setData(null)
+    setSelected(null)
+    setPicked(null)
+    setSchool(null)
+    setDong(null)
+    setQ('')
+    setCity(c)
+  }
 
   const recs = useMemo(() => (data ? data.recs.filter((d) => d[0] === M && d[1] === R) : []), [data, M, R])
   const sum = data?.recSummary.find((d) => d.편의점 === M && d.가맹원반경_m === R)
   const bars = data?.recSummary.filter((d) => d.편의점 === M) ?? []
   const barMax = Math.max(1, ...(data?.recSummary.map((d) => d.권유식당) ?? [1]))
   const sel: Rec | undefined = recs.find((d) => d[2] === selected)
+  // 시군·조건이 바뀌면 목록을 다시 처음 100곳부터. 지도에서 고른 식당이 그 뒤에 있으면 그 줄까지 그린다.
+  const recKey = `${city}|${M}|${R}|${activeSlot}|${day}` // 시간대·요일을 바꿔도 처음부터
+  const recLimit = recMore.key === recKey ? recMore.n : LIST_STEP
+  const selIdx = selected === null ? -1 : recs.findIndex((d) => d[2] === selected)
+  const shownRecs = Math.max(recLimit, selIdx + 1)
 
   // 동네(행정동)별 식당 수. 권유 식당은 지금 고른 반경·편의점 기준
   const dongStats = useMemo(() => {
@@ -132,20 +188,23 @@ export default function MealcardApp() {
     setMore(false)
     const pts: [number, number][] = [...data.members, ...data.non].filter((p) => p[4] === c).map((p) => [p[0], p[1]])
     data.schools.filter((s) => s.g === c).forEach((s) => pts.push([s.y, s.x]))
-    mapRef.current?.fit(pts)
+    mapRef.current?.fit(pts, 5) // 동네에 들어가면 최소 2단계(숫자 원)까지
   }, [data])
 
   // 학교를 고르면: 그 학교 1km 원이 꽉 차게 이동하고, 1km 둘레의 원·식당 점과 학교 카드를 보여 준다
+  // 학교 고르기: 한 번 누르면 켜지고(카드·1km 원), 같은 학교를 한 번 더 누르면 꺼진다. 끌 때는 지도를 움직이지 않는다
   const selectSchool = useCallback((i: number) => {
     if (!data || i < 0) return
+    if (i === school) { setSchool(null); return }
     const s = data.schools[i]
     setSchool(i)
     setDong(s.g)
     setSelected(null)
+    setPicked(null)
     setDrawerOpen(false)
     const dy = data.schoolR / 111320, dx = data.schoolR / (111320 * Math.cos((s.y * Math.PI) / 180))
-    mapRef.current?.fit([[s.y - dy, s.x - dx], [s.y + dy, s.x + dx]])
-  }, [data])
+    mapRef.current?.fit([[s.y - dy, s.x - dx], [s.y + dy, s.x + dx]], 5) // 1km 원이 다 보이게. 고른 학교의 점은 단계와 상관없이 그린다
+  }, [data, school])
 
   const schools = useMemo(() => {
     if (!data) return []
@@ -157,6 +216,7 @@ export default function MealcardApp() {
 
   const pickRec = useCallback((d: Rec) => {
     setSelected(d[2])
+    setPicked(null)
     setSchool(null)
     setDong(d[11])           // 그 식당이 있는 동네의 원·점을 그린다
     setDrawerOpen(false)
@@ -200,12 +260,17 @@ export default function MealcardApp() {
         <div className="mc-panel">
           <p className="mc-note">가장 가까운 가맹점이 먼 순서예요.</p>
           <ul className="mc-list">
-            {recs.map((d) => (
+            {recs.slice(0, shownRecs).map((d) => (
               <Item key={`${d[5]}-${d[3]}`} onClick={() => pickRec(d)} active={d[2] === selected}
                 prefix={<Rank n={d[2]} />} title={d[5]} detail={`${d[6]} · ${d[7]} ${fmt(d[8])}m`}
                 suffix={<Badge>{fmt(d[9])}m</Badge>} />
             ))}
           </ul>
+          {recs.length > shownRecs && (
+            <button className="mc-btn" onClick={() => setRecMore({ key: recKey, n: shownRecs + LIST_STEP })}>
+              권유 식당 {fmt(Math.min(LIST_STEP, recs.length - shownRecs))}곳 더 보기 (남은 {fmt(recs.length - shownRecs)}곳)
+            </button>
+          )}
           {recs.length === 0 && <p className="mc-empty">이 기준에서는 권유 식당이 없어요</p>}
         </div>
       )}
@@ -213,8 +278,8 @@ export default function MealcardApp() {
       {tab === 'dongs' && (
         <div className="mc-panel">
           <div className="mc-crumb">
-            {dong && <button className="mc-icon-btn" aria-label="춘천시로" onClick={backToCity}>‹</button>}
-            <button className={dong ? 'muted' : 'strong'} onClick={backToCity}>춘천시</button>
+            {dong && <button className="mc-icon-btn" aria-label={`${cityInfo.name}로`} onClick={backToCity}>‹</button>}
+            <button className={dong ? 'muted' : 'strong'} onClick={backToCity}>{cityInfo.name}</button>
             {inDong && <><span className="muted">›</span><span className="strong">{inDong.name}</span></>}
           </div>
 
@@ -240,7 +305,9 @@ export default function MealcardApp() {
               <h3 className="mc-h3">미가맹 식당 {inDong.non.length}곳</h3>
               <ul className="mc-list">
                 {inDong.non.map((p) => (
-                  <Item key={`${p[2]}-${p[0]}`} onClick={() => mapRef.current?.focus(p[0], p[1], 3)} prefix={<Dot color="var(--mc-non)" />} title={p[2]} detail={p[3]} />
+                  <Item key={`${p[2]}-${p[0]}`} active={picked === p}
+                    onClick={() => { setPicked(p); setSelected(null); setSchool(null); setDrawerOpen(false); mapRef.current?.focus(p[0], p[1], 3) }}
+                    prefix={<Dot color="var(--mc-non)" />} title={p[2]} detail={`${p[3]}`} />
                 ))}
               </ul>
               <h3 className="mc-h3">가맹 식당 {fmt(inDong.mem.length)}곳</h3>
@@ -288,19 +355,19 @@ export default function MealcardApp() {
           </section>
           <section className="mc-legend">
             <h3 className="mc-h3">범례</h3>
-            <div><Dot square color="var(--mc-ask)" />학교: 1km 안에 권유 식당 있음</div>
+            <div><Dot square color="var(--mc-ask)" />학교: 1km 안에 권유 식당 있음 (주황 숫자 = 권유 식당 수)</div>
             <div><Dot square color="var(--mc-covered)" />학교: 권유 식당 없음</div>
             <div><Dot color="var(--mc-member)" />식사형 가맹 식당</div>
             <div><Dot color="var(--mc-cvs)" />편의점 가맹점 (편의점 포함일 때)</div>
             <div><Dot color="var(--mc-non)" />미가맹 식당</div>
             <div><Dot ring color="var(--mc-non)" />가맹 권유 식당</div>
-            <div><Dot square color="rgb(98 80 214 / .25)" />춘천시 구역</div>
+            <div><Dot square color="rgb(98 80 214 / .25)" />{cityInfo.name} 구역</div>
           </section>
           <section className="mc-small">
             <h3 className="mc-h3">고른 규칙</h3>
-            <p>공식 업종이 일반음식점이고 식사형 업태인 곳만 봤어요. 술집·카페·편의점과 상호에 술집·비식당 표현이 있는 곳은 뺐고, 팀이 확인해 8곳을 더 뺐어요.</p>
+            <p>{data?.rules ?? CHUNCHEON_RULES}</p>
             <h3 className="mc-h3">출처</h3>
-            <p>춘천시 요식업소 현황(공공데이터포털 15003349, 2026-05-27), 춘천시 아동급식카드 가맹점(2026-08-26, 팀 전처리 4,395곳), 상가(상권)정보(15083033, 2026-06), 아동복지급식정보표준데이터(15034530), 초중등학교위치표준데이터(15021148, 2026-10). 춘천시 경계 © OpenStreetMap 기여자(ODbL). 지도 © Kakao. 거리는 직선거리.</p>
+            <p>{data?.sources ?? CHUNCHEON_SOURCES}</p>
           </section>
         </div>
       )}
@@ -310,21 +377,31 @@ export default function MealcardApp() {
 
   return (
     <div className="mc">
+      {/* 머리말: 가맹점 찾기 화면(App.tsx)과 같은 모양. 잇다 로고 + 두 화면 이동 버튼(지금 화면이 채워진 버튼) */}
       <header className="mc-header">
-        <span className="mc-logo">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2a1 1 0 0 1 1 1v6a2 2 0 0 0 1 1.73V21a1 1 0 1 1-2 0V10.73A2 2 0 0 0 6 9V3a1 1 0 0 1 1-1Zm-3 1a1 1 0 0 1 2 0v5H4V3Zm6 0a1 1 0 1 1 2 0v5h-2V3Zm7-1c2.2 0 4 2.69 4 6 0 2.4-.94 4.47-2.3 5.42V21a1 1 0 1 1-2 0v-7.58C15.34 12.47 14.4 10.4 14.4 8c0-3.31 1.4-6 2.6-6Z" /></svg>
-        </span>
-        <div className="mc-grow">
-          <h1>춘천 급식카드 가맹 권유 지도</h1>
+        <a className="mc-brandmark" href={import.meta.env.BASE_URL}>
+          <span className="mc-brand-icon"><img src={`${import.meta.env.BASE_URL}eatda-logo.png`} alt="잇다 로고" /></span>
+          <strong>잇다(EATDA)</strong>
+        </a>
+        <nav className="mc-nav">
+          <a className="mc-nav-link" href={`${import.meta.env.BASE_URL}finder.html`}>가맹점 찾기</a>
+          <span className="mc-nav-active" aria-current="page">가맹 권유 지도</span>
+        </nav>
+        <div className="mc-grow mc-title">
+          <h1>{cityInfo.short} 급식카드 가맹 권유 지도</h1>
           <p>학교 1km 안, 기존 가맹점이 닿지 않는 미가맹 식당</p>
         </div>
-        <a className="mc-back" href={`${import.meta.env.BASE_URL}finder.html`}>← 가맹점 찾기</a>
+        <div className="mc-seg mc-city" role="radiogroup" aria-label="시군">
+          {CITIES.map((c) => (
+            <button key={c.key} role="radio" aria-checked={c.key === city} className={c.key === city ? 'on' : ''} onClick={() => changeCity(c.key)}>{c.short}</button>
+          ))}
+        </div>
       </header>
 
       <main className="mc-main">
         <section className="mc-mapwrap">
           {data ? (
-            <MealcardMap ref={mapRef} data={data} R={R} M={M} layers={layers} dong={dong} school={school} onSelectSchool={selectSchool}
+            <MealcardMap key={city} ref={mapRef} data={data} R={R} M={M} layers={layers} dong={dong} school={school} onSelectSchool={selectSchool} onSelectDong={openDong}
               onSelectRec={(rank) => { setSelected(rank); setSchool(null); const r = recs.find((d) => d[2] === rank); if (r) setDong(r[11]) }}
               selectedRank={selected} />
           ) : (
@@ -334,7 +411,8 @@ export default function MealcardApp() {
           {/* 조건 패널. 휴대폰에서는 한 줄로 접어 두고 누르면 펼친다 */}
           {!ctrlOpen && (
             <button className="mc-float mc-ctrl-mini" onClick={() => setCtrlOpen(true)}>
-              <span className="brand">가맹 원 {R}m</span><span className="mc-muted">·</span><span>편의점 {M}</span><span className="mc-muted xs">바꾸기</span>
+              <span className="brand">가맹 원 {R}m</span><span className="mc-muted">·</span><span>편의점 {M}</span>
+              {activeSlot !== 'all' && <><span className="mc-muted">·</span><span>{DAY_LABEL[day]} {SLOT_LABEL[activeSlot]}</span></>}<span className="mc-muted xs">바꾸기</span>
             </button>
           )}
           <div className={`mc-float mc-ctrl${ctrlOpen ? ' open' : ''}`}>
@@ -348,6 +426,15 @@ export default function MealcardApp() {
               <span className="mc-muted xs">편의점 가맹점</span>
               <Seg label="편의점 가맹점" value={M} onChange={(v) => setM(v as Mode)} items={[['미포함', '미포함'], ['포함', '포함']]} />
             </div>
+            <div className="mc-field">
+              <span className="mc-muted xs">시간대 (급식카드는 학기 중 주말·공휴일에 써요)</span>
+              <Seg label="시간대" value={activeSlot} onChange={(v) => setSlot(v as Slot)}
+                items={(['all', 'lunch', 'dinner'] as Slot[]).map((v) => [v, SLOT_LABEL[v]])} />
+              {activeSlot !== 'all' && (
+                <Seg label="요일" value={day} onChange={(v) => setDay(v as Day)} items={(['sat', 'sun', 'wkd'] as Day[]).map((v) => [v, DAY_LABEL[v]])} />
+              )}
+              {!hasHours && cityHours && <span className="mc-muted xs">{cityInfo.short}은 가맹점 영업시간 자료가 없어요</span>}
+            </div>
             <div className="mc-switches">
               <Toggle checked={layers.ring} onChange={(c) => setLayers({ ...layers, ring: c })} label="가맹 원" />
               <Toggle checked={layers.schoolRing} onChange={(c) => setLayers({ ...layers, schoolRing: c })} label="학교 1km" />
@@ -357,11 +444,11 @@ export default function MealcardApp() {
 
           {data && !dong && school === null && !shownSel && (
             <button className="mc-float mc-hint" onClick={() => { setTab('dongs'); setDrawerOpen(true) }}>
-              <b className="brand">동네를 고르면</b> <span className="mc-muted">그 동네의 가맹 원과 식당 점이 보여요</span>
+              <b className="brand">확대할수록</b> <span className="mc-muted">읍·면·동 → 권유 식당 수 → 식당 점 순서로 보여요</span>
             </button>
           )}
 
-          {data && school !== null && !shownSel && (
+          {data && school !== null && !shownSel && !picked && (
             <SchoolCard data={data} index={school} R={R} M={M} recs={recs} onPick={pickRec} onClose={() => setSchool(null)} />
           )}
 
@@ -378,6 +465,17 @@ export default function MealcardApp() {
                 <div className="mc-cell brand"><div className="mc-muted xs">가장 가까운 가맹점</div><div className="num brand">{fmt(shownSel[9])}m</div><div className="mc-muted xs">가맹 원 {R}m 밖</div></div>
               </div>
               <p className="mc-muted sm">학교 1km 안이지만 주변에 카드를 쓸 수 있는 식당이 없는 자리예요. 가맹하면 아이들이 갈 곳이 새로 생겨요.</p>
+            </div>
+          )}
+
+          {/* 동네 탭에서 고른 미가맹 식당 */}
+          {picked && !shownSel && (
+            <div className="mc-float mc-card">
+              <div className="mc-card-head">
+                <span className="mc-dot big" style={{ background: 'var(--mc-non)' }} />
+                <div className="mc-grow"><div className="mc-card-title">{picked[2]}</div><div className="mc-muted ellipsis">미가맹 · {picked[3]}</div></div>
+                <Close onClick={() => setPicked(null)} />
+              </div>
             </div>
           )}
         </section>

@@ -1,13 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
 /* 가맹 권유 지도 스타일. 팀 화면에 영향이 없도록 모든 규칙을 .mc 아래에만 둔다.
-   Next.js 버전의 SEED Design 모양(둥근 카드, 세그먼트, 스위치, 밑줄 탭)을 일반 CSS로 옮겼다. 포인트 색은 파랑. */
+   2026-11-18: 가맹점 찾기 화면(index.css·App.css)과 글꼴(Noto Sans KR)·색(파랑 #2563eb, 남색 글자)·모서리(7px)를 맞췄다. */
 .mc {
-  --mc-brand: #3182f6;
-  --mc-brand-weak: #eaf2fe;
-  --mc-ink: #1a1c20;
-  --mc-muted: #6b7684;
-  --mc-line: #e5e8eb;
-  --mc-weak: #f2f4f6;
-  --mc-bg: #f7f8fa;
+  --mc-brand: #2563eb;        /* 가맹점 찾기와 같은 파랑 */
+  --mc-brand-weak: #eff5ff;
+  --mc-ink: #192d49;          /* 제목 남색 */
+  --mc-text: #253449;         /* 본문 */
+  --mc-muted: #68768a;
+  --mc-line: #e8edf4;
+  --mc-weak: #f0f3f7;
+  --mc-bg: #f8fafc;
   --mc-surface: #fff;
   --mc-member: #2a78d6;
   --mc-cvs: #eda100;
@@ -17,7 +19,8 @@
   --mc-positive: #13a26b;
   --mc-positive-weak: #e6f7ef;
   display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
-  background: var(--mc-bg); color: var(--mc-ink); font-size: 14px; line-height: 1.5;
+  background: var(--mc-bg); color: var(--mc-text); font-size: 14px; line-height: 1.5;
+  font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; -webkit-font-smoothing: antialiased; font-synthesis: none;
 }
 .mc * { box-sizing: border-box; }
 .mc button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left; }
@@ -28,15 +31,35 @@
 .mc .sm { font-size: 13px; line-height: 1.6; }
 .mc .strong { font-weight: 700; }
 .mc .brand { color: var(--mc-brand); }
-.mc .mono, .mc .num { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
+.mc .mono, .mc .num { font-variant-numeric: tabular-nums; } /* 숫자도 본문 글꼴로 (가맹점 찾기와 같게) */
 .mc .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 헤더 */
-.mc-header { display: flex; align-items: center; gap: 12px; height: 56px; flex-shrink: 0; padding: 0 16px; background: var(--mc-surface); border-bottom: 1px solid var(--mc-line); }
-.mc-logo { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--mc-brand); color: #fff; }
-.mc-header h1 { font-size: 16px; font-weight: 700; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mc-back { flex-shrink: 0; padding: 6px 12px; border-radius: 8px; background: var(--mc-weak); color: var(--mc-ink); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; }
-.mc-back:hover { background: #e5e8eb; }
+/* 헤더: 가맹점 찾기(App.css .header·.brand·.nav-active)와 같은 모양 */
+.mc-header { display: flex; align-items: center; gap: 28px; height: 64px; flex-shrink: 0; padding: 0 28px; background: #fff; border-bottom: 1px solid var(--mc-line); }
+.mc .mc-brandmark { display: flex; align-items: center; gap: 10px; flex-shrink: 0; color: var(--mc-ink); text-decoration: none; }
+.mc .mc-brand-icon { display: grid; place-items: center; width: 38px; height: 40px; overflow: hidden; border-radius: 12px 12px 12px 3px; background: var(--mc-brand); }
+.mc .mc-brand-icon img { display: block; width: 100%; height: 100%; object-fit: contain; transform: scale(1.18); }
+.mc .mc-brandmark strong { font-size: 23px; font-weight: 800; letter-spacing: -1.1px; color: var(--mc-ink); white-space: nowrap; }
+.mc .mc-nav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.mc .mc-nav a, .mc .mc-nav span { display: flex; align-items: center; padding: 9px 18px; border: 1px solid var(--mc-brand); border-radius: 7px; font-size: 13px; font-weight: 700; white-space: nowrap; text-decoration: none; }
+.mc .mc-nav-link { color: var(--mc-brand); background: #fff; }
+.mc .mc-nav-link:hover { background: var(--mc-brand-weak); }
+.mc .mc-nav-active { color: #fff; background: var(--mc-brand); box-shadow: 0 2px 5px #2563eb20; }
+.mc .mc-title { min-width: 0; }
+.mc-header h1 { font-size: 15px; font-weight: 700; color: var(--mc-ink); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-header .mc-title p { font-size: 12px; color: var(--mc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1150px) { .mc-header { gap: 16px; padding: 0 18px; } .mc-header .mc-title p { display: none; } }
+@media (max-width: 760px) {
+  .mc-header { height: 58px; gap: 8px; padding: 0 12px; }
+  .mc .mc-brand-icon { width: 31px; height: 34px; }
+  .mc .mc-brandmark { gap: 6px; }
+  .mc .mc-brandmark strong { font-size: 17px; }
+  .mc .mc-nav a, .mc .mc-nav span { font-size: 10px; padding: 8px 10px; }
+  .mc .mc-title { display: none; }
+}
+.mc-city { flex-shrink: 0; width: 236px; }
+@media (max-width: 640px) { .mc-city { width: auto; } .mc-city button { padding: 5px 7px; } }
+.mc-city button { padding: 5px 4px; font-size: 13px; }
 .mc-header p { font-size: 12px; color: var(--mc-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 본문: 지도 + 사이드바 */
@@ -58,9 +81,9 @@
 .mc-switches { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 
 /* 세그먼트 */
-.mc-seg { display: flex; padding: 4px; border-radius: 999px; background: var(--mc-weak); }
-.mc-seg button { flex: 1; min-width: 0; padding: 7px 4px; border-radius: 999px; text-align: center; font-weight: 600; color: var(--mc-muted); transition: background .15s, color .15s; }
-.mc-seg button.on { background: var(--mc-surface); color: var(--mc-ink); font-weight: 700; box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.mc-seg { display: flex; padding: 4px; border-radius: 9px; background: var(--mc-weak); }
+.mc-seg button { flex: 1; min-width: 0; padding: 7px 4px; border-radius: 7px; text-align: center; font-weight: 600; color: var(--mc-muted); transition: background .15s, color .15s; }
+.mc-seg button.on { background: var(--mc-brand); color: #fff; font-weight: 700; box-shadow: 0 2px 5px #2563eb20; }
 
 /* 스위치 */
 .mc-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; user-select: none; }
@@ -84,6 +107,10 @@
 .mc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .mc-chips button { padding: 4px 10px; border-radius: 999px; background: var(--mc-weak); font-size: 12px; }
 .mc-chips b { color: var(--mc-non); }
+.mc-slider-wrap { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex-shrink: 0; } /* 카드 안에서 눌려 잘리지 않게 */
+.mc-slider { flex-wrap: nowrap; align-items: center; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; padding: 2px 0 14px; overscroll-behavior-x: contain; flex-shrink: 0; } /* 아래 14px는 스크롤 막대 자리 */
+.mc-slider button { flex: 0 0 auto; white-space: nowrap; scroll-snap-align: start; line-height: 1.5; }
+.mc-card { max-height: calc(100% - 190px); overflow-y: auto; }
 .mc-icon-btn { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--mc-muted); font-size: 20px; line-height: 1; }
 .mc-icon-btn:hover { background: var(--mc-weak); }
 
@@ -168,3 +195,32 @@
   .mc-hint, .mc-card { bottom: 12px; }
 }
 @media (max-width: 639px) { .mc .hide-sm { display: none; } }
+
+
+/* 시 전체 화면의 읍·면·동 이름표 (누르면 그 동네로 들어감) */
+.mc .mc-dong-label { padding: 5px 11px; border-radius: 999px; background: rgb(26 28 32 / .9); color: #fff; font-size: 12.5px; font-weight: 700; white-space: nowrap; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgb(0 0 0 / .3); border: 0; cursor: pointer; }
+.mc .mc-dong-label:hover { background: var(--mc-brand); }
+
+/* 2단계: 권유 식당 수 원 (확대하면 점으로 풀림) */
+.mc .mc-count { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgb(27 175 122 / .92); color: #fff; font-size: 14px; font-weight: 800; text-align: center; box-shadow: 0 0 0 4px rgb(27 175 122 / .25), 0 2px 6px rgb(0 0 0 / .25); cursor: pointer; }
+.mc .mc-count:hover { background: rgb(19 134 94 / .95); }
+/* 2단계 학교 원: 권유 식당 0곳인 학교는 작은 회색 / 점이 많은 곳의 권유 식당 묶음은 주황 */
+.mc .mc-count.zero { background: rgb(154 153 147 / .85); font-size: 12px; box-shadow: 0 0 0 3px rgb(154 153 147 / .25), 0 1px 4px rgb(0 0 0 / .2); }
+.mc .mc-count.recs { background: rgb(235 104 52 / .92); box-shadow: 0 0 0 4px rgb(235 104 52 / .25), 0 2px 6px rgb(0 0 0 / .25); }
+.mc .mc-count.recs:hover { background: rgb(214 82 30 / .95); }
+
+/* 학교 표시(H안): 동그란 학교 아이콘 + 주황 숫자 배지. 3단계에서 자리가 나면 흰 알약 안에 아이콘 + 학교 이름 */
+.mc-school { display: inline-flex; align-items: center; gap: 5px; padding: 3px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.mc-school.labeled { padding-right: 11px; background: #fff; box-shadow: 0 1px 5px rgb(0 0 0 / .28); }
+.mc-school-ic { position: relative; flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; background: #1baf7a; --hole: #1baf7a; box-shadow: 0 0 0 2px #fff, 0 1px 4px rgb(0 0 0 / .3); }
+.mc-school.labeled .mc-school-ic { box-shadow: none; }
+.mc-school-ic svg { width: 21px; height: 21px; }
+.mc-school.none .mc-school-ic { background: #9a9993; --hole: #9a9993; }
+.mc-school.sel .mc-school-ic { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #1baf7a; }
+.mc-school.none.sel .mc-school-ic { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #9a9993; }
+.mc-school-name { display: none; font-size: 12px; font-weight: 700; line-height: 1; color: #0f5132; }
+.mc-school.none .mc-school-name { color: #5f5e5a; }
+.mc-school.labeled .mc-school-name { display: block; }
+.mc-school-badge { position: absolute; top: -9px; right: -9px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #eb6834; color: #fff; font-size: 10.5px; font-weight: 800; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px #fff; font-variant-numeric: tabular-nums; }
+.mc-school.labeled .mc-school-badge { right: auto; left: -11px; } /* 이름이 붙으면 배지는 아이콘 왼쪽 위로 (이름을 가리지 않게) */
+
