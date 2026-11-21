@@ -21,6 +21,6 @@ export function createAudioRecorder(stream: MediaStream) {
 
 export function recordingFileName(type: string) {
   const format = type.split(';')[0].trim().toLowerCase()
-  const extension = format === 'audio/mp4' ? 'mp4' : format === 'audio/ogg' ? 'ogg' : format === 'audio/wav' ? 'wav' : 'webm'
+  const extension = format === 'audio/mp4' ? 'mp4' : format === 'audio/ogg' ? 'ogg' : format === 'audio/mpeg' ? 'mp3' : ['audio/wav', 'audio/x-wav'].includes(format) ? 'wav' : 'webm'
   return `command.${extension}`
 }

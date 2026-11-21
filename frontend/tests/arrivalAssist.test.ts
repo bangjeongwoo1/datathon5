@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { estimateArrival, merchantCallUrl, arrivalCommand, helpCallScript, requestMerchantCall } from '../src/arrivalAssist.ts'
+import { estimateArrival, estimateRouteEnd, merchantCallUrl, arrivalCommand, helpCallScript, requestMerchantCall } from '../src/arrivalAssist.ts'
 
 const point = { lat: 37.88, lng: 127.73 }
 test('2m 좌표 근접에도 위치 오차가 크면 초근접으로 판정하지 않는다', () => {
@@ -49,4 +49,16 @@ test('음성 동의 문맥에서만 DB 번호로 연결을 요청하며 실제 �
   assert.equal(requestMerchantCall(undefined, open), 'unavailable')
   assert.equal(requested.length, 1)
   assert.equal(requestMerchantCall('033-123-4567', () => { throw new Error('blocked') }), 'unavailable')
+})
+
+test('가게 핀과 보행 경로 끝이 달라도 경로 끝에서는 전화 도움을 제안할 수 있다', () => {
+  const merchantPin = { ...point, lat: point.lat + 0.001 }
+  assert.equal(estimateArrival({ ...point, accuracy: 5 }, merchantPin, 0).proximity, 'outside')
+  assert.equal(estimateRouteEnd({ ...point, accuracy: 5 }, point, 0)?.proximity, 'nearby')
+  assert.equal(estimateRouteEnd({ ...point, accuracy: 5 }, undefined, 0), null)
+  assert.equal(estimateRouteEnd({ ...point, accuracy: 5 }, point, 20), null)
+  assert.equal(arrivalCommand('알았어', true), 'accept-call')
+  assert.equal(arrivalCommand('응, 전화 연결해줘', true), 'accept-call')
+  assert.equal(arrivalCommand('알았어', false), null)
+  assert.equal(arrivalCommand('길 안내해줘', true), null)
 })

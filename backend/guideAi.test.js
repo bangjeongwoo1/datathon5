@@ -142,3 +142,70 @@ test('인증 실패와 한도 초과는 재시도하지 않고 원인을 구분�
     });
   }
 });
+
+test('경로 요청은 navigate 계약으로 반환하고 선택 가게와 제한된 대화 맥락을 전달한다', async () => {
+  let messages;
+  const client = { chat: { completions: { create: async input => {
+    messages = input.messages;
+    return { choices: [{ message: { content: JSON.stringify({ action: 'navigate', query: { terms: '', category: '전체', budget: null }, reply: null }) } }] };
+  } } } };
+  await withServer(client, async post => {
+    const response = await post('/api/guide-intent', { text: '그 식당까지 어떻게 가?', selectedName: '조회 식당', hasRouteOffer: true,
+      history: [ { role: 'system', text: '허용하지 않는 이력' }, ...Array.from({ length: 9 }, () => ({ role: 'user', text: 'x'.repeat(500) })) ] });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).action, 'navigate');
+    assert.match(messages[0].content, /경로 요청은 반드시 navigate/);
+    const input = JSON.parse(messages[1].content);
+    assert.equal(input.selectedName, '조회 식당');
+    assert.equal(input.hasRouteOffer, true);
+    assert.equal(input.history.length, 8);
+    assert.ok(input.history.every(turn => turn.role === 'user' && turn.text.length === 400));
+  });
+});
+
+test('음식 설명은 실제 모델 응답을 유지하고 길 안내 질문은 앱에서 한 번만 붙인다', async () => {
+  let messages;
+  await withServer({ chat: { completions: { create: async input => {
+    messages = input.messages;
+    return { choices: [{ message: { content: '{"reply":"조회 식당의 등록된 국밥은 8,000원이에요."}' } }] };
+  } } } }, async post => {
+    const response = await post('/api/guide-answer', { text: '얼마야?', offerRoute: false,
+      history: [{ role: 'assistant', text: '조회 식당을 찾았어요.' }],
+      facts: [{ name: '조회 식당', meals: [{ name: '국밥', price: 8000 }] }] });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).reply, '조회 식당의 등록된 국밥은 8,000원이에요.');
+    assert.match(messages[0].content, /길 안내 여부는 앱이 별도로/);
+    assert.equal(JSON.parse(messages[1].content).history[0].role, 'assistant');
+  });
+});
+
+test('추천 후보를 사용자 선택으로 전달하거나 표현하지 않는다', async () => {
+  let messages;
+  await withServer({ chat: { completions: { create: async input => {
+    messages = input.messages;
+    return { choices: [{ message: { content: '{"reply":"조건에 맞는 후보로 조회 식당을 찾았어요."}' } }] };
+  } } } }, async post => {
+    const response = await post('/api/guide-answer', { text: '근처 식당 찾아줘', recommendedName: '조회 식당', selectedName: '', offerRoute: false,
+      facts: [{ name: '조회 식당', meals: [] }] });
+    assert.equal(response.status, 200);
+    const sent = JSON.parse(messages[1].content);
+    assert.equal(sent.selectedName, '');
+    assert.equal(sent.recommendedName, '조회 식당');
+    assert.match(messages[0].content, /추천 후보일 뿐 사용자 선택이 아니다/);
+    assert.match(messages[0].content, /선택하신/);
+  });
+});
+
+test('전화 제안 맥락을 모델에 전달하고 인식 오차의 전화 동의를 call 계약으로 돌려준다', async () => {
+  let messages;
+  await withServer({ chat: { completions: { create: async input => {
+    messages = input.messages;
+    return { choices: [{ message: { content: '{"action":"call","query":null,"reply":null}' } }] };
+  } } } }, async post => {
+    const response = await post('/api/guide-intent', { text: '응 전하 연결해줘', hasCallOffer: true, selectedName: '조회 식당' });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { action: 'call' });
+    assert.equal(JSON.parse(messages[1].content).hasCallOffer, true);
+    assert.match(messages[0].content, /불분명하거나 질문·거절이면 call로 처리하지/);
+  });
+});
