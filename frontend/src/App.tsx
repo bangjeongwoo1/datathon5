@@ -1,6 +1,6 @@
 import VoiceGuide from './VoiceGuide'
 import type { VoiceStatus } from './VoiceGuide'
-import { mealsWithinBudget } from './mealPrice'
+import { mealsForDetail, mealsWithinBudget } from './mealPrice'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { scopeMerchants } from './mapClusters'
 import KakaoMap from './KakaoMap'
@@ -21,7 +21,9 @@ import { fetchAllReviewSummaries, fetchAllTagCounts } from './reviewApi'
 import type { ReviewSummary, TagCounts } from './reviewApi'
 import type { ReviewTagCode } from './reviewTags'
 import { straightDistanceMeters } from './merchantDistance'
-import { requestCurrentLocation } from './userLocation'
+import { geolocationPermission, lowAccuracyNotice, requestCurrentLocation } from './userLocation'
+import type { UserLocation } from './userLocation'
+import { nearestRegion, withIra } from './regionCenters'
 import { matchedMenuNames, menuMatchLabel } from './menuSearch'
 import { loadSidebarOpen, loadVoiceCardOpen, revealVoiceCard, saveSidebarOpen, saveVoiceCardOpen } from './finderSidebar'
 function Icon({name,size=20}:{name:string;size?:number}) {
@@ -136,6 +138,9 @@ function App(){
  const [minReviewsOnly,setMinReviewsOnly]=useState(false)
  const [underTenOnly,setUnderTenOnly]=useState(false)
  const [userLocation,setUserLocation]=useState<Coordinates|null>(null)
+ // "현재 위치로 이동"(◎): 위치를 가져오는 중인지, 지도가 이동해야 할 좌표(seq 가 바뀔 때마다 이동)
+ const [locating,setLocating]=useState(false)
+ const [locateTarget,setLocateTarget]=useState<{lat:number;lng:number;seq:number}|null>(null)
 
  const [selectionRequest,setSelectionRequest]=useState(0)
  const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -219,6 +224,56 @@ const changeRegion = (nextRegion: Region) => {
   setRegionOpen(false)
   reset()
 }
+
+// 받은 내 위치를 화면에 반영한다: 가장 가까운 지역으로 바꾸고(지도 중심이 춘천에 머물지 않게), 거리순으로 정렬하고,
+// 지도를 내 위치로 옮긴다. 사용자에게 알릴 안내 문구들을 돌려준다.
+const applyLocation = (location: UserLocation): string[] => {
+  const notices: string[] = []
+  const nearest = nearestRegion(location)
+  if (!nearest) {
+    notices.push('강원특별자치도 가맹점 지역(춘천·원주·강릉·홍천) 밖이에요. 내 위치만 표시해요.')
+  } else if (nearest.region !== region) {
+    changeRegion(nearest.region as Region) // 지역을 바꾸면 검색·필터가 초기화된다
+    notices.push(`현재 위치가 ${withIra(nearest.region)} 지역을 바꿨어요.`)
+  }
+  receiveLocation(location) // changeRegion 의 초기화 뒤에 불러야 거리순 정렬이 유지된다
+  setLocateTarget({ lat: location.lat, lng: location.lng, seq: Date.now() })
+  const lowAccuracy = lowAccuracyNotice(location.accuracy)
+  if (lowAccuracy) notices.push(lowAccuracy)
+  return notices
+}
+
+const locateMe = async () => {
+  if (locating) return
+  setLocating(true)
+  try {
+    const notices = applyLocation(await requestCurrentLocation())
+    if (notices.length) setNotice(notices.join(' '))
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : '현재 위치를 가져오지 못했습니다.')
+  } finally {
+    setLocating(false)
+  }
+}
+
+// 위치 권한이 이미 허용된 경우에만 페이지를 열자마자 내 위치를 반영한다.
+// (처음 방문한 사람에게 묻지도 않고 권한 창을 띄우면 무심코 거부해서 이후 영구히 차단되는 경우가 많다.
+//  그 외에는 ◎ 를 눌렀을 때 요청하고, 실패하면 원인을 안내한다.)
+const applyLocationRef = useRef(applyLocation)
+useEffect(() => { applyLocationRef.current = applyLocation })
+useEffect(() => {
+  let active = true
+  void geolocationPermission().then(async state => {
+    if (state !== 'granted' || !active) return
+    try {
+      const location = await requestCurrentLocation()
+      if (active) applyLocationRef.current(location)
+    } catch {
+      // 조용히 넘어간다. ◎ 를 누르면 원인을 안내한다.
+    }
+  })
+  return () => { active = false }
+}, [])
 
 
  const route = (s: Merchant) =>
@@ -337,7 +392,7 @@ const handleSortChange = async (mode: SortMode) => {
      <button type="button" className="sidebar-reopen" onClick={toggleSidebar} aria-expanded={sidebarOpen} aria-controls="finder-sidebar">검색·필터 ▾</button>
      {!voiceCardOpen && <button type="button" className="voice-reopen" onClick={toggleVoiceCard} aria-expanded={false} aria-controls="voice-live-status"><Icon name="mic" size={15}/>음성 안내</button>}
      <section className="map" aria-label={`${region} 카카오 가맹점 지도`}>
-       <KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} onLocationChange={receiveLocation} userLocation={userLocation}/>
+       <KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} userLocation={userLocation} onLocate={locateMe} locating={locating} locateTarget={locateTarget}/>
        <button className="map-list-button" onClick={() => setMobileView(mobileView === 'list' ? 'map' : 'list')}><Icon name="list" size={17}/>{mobileView === 'list' ? '목록 닫기' : '목록 보기'} <b>{merchantLoadState === 'ready' ? sortedVisible.length.toLocaleString() : '…'}</b></button>
        {selected && <div className="map-popup"><div className="sheet-handle"/><div className="popup-head"><span className="popup-kicker">선택한 가맹점</span><button aria-label="매장 상세 닫기" onClick={() => setSelectedId(null)}>×</button></div>
          <div className="popup-title"><span className={`popup-icon ${color(selected.category)}`}><Icon name="pin" size={27}/></span><div><p>{selected.category}</p><h2>{selected.name}</h2></div></div>
@@ -349,7 +404,15 @@ const handleSortChange = async (mode: SortMode) => {
            {selected.businessHours?.holiday && <p>공휴일 · {selected.businessHours.holiday}</p>}
            {selected.under10000 === 'Y' && <span className="under-ten-badge">만원 이하 식사 있음</span>}
          </div>
-         <div className="selected-meals">{selected.confirmedMeals?.length ? selected.confirmedMeals.map(meal => <div key={`${meal.name}-${meal.price}`}><span>{meal.name}{meal.preview && <small>후보 가격</small>}</span><strong>{meal.price.toLocaleString()}원</strong></div>) : <p>메뉴·가격은 방문 전 확인해 주세요.</p>}</div>
+         {(() => {
+           // 가격 필터("만 원 이하" 등)가 켜져 있으면 그 금액 이하 메뉴만 보여 준다.
+           const { shown, hiddenCount } = mealsForDetail(selected.confirmedMeals, maximumPrice)
+           return <div className="selected-meals">
+             {shown.length ? shown.map(meal => <div key={`${meal.name}-${meal.price}`}><span>{meal.name}{meal.preview && <small>후보 가격</small>}</span><strong>{meal.price.toLocaleString()}원</strong></div>)
+               : <p>{maximumPrice !== null && hiddenCount > 0 ? `${maximumPrice.toLocaleString()}원 이하 메뉴가 없어요.` : '메뉴·가격은 방문 전 확인해 주세요.'}</p>}
+             {hiddenCount > 0 && <p className="meals-hidden-note">{maximumPrice!.toLocaleString()}원을 넘는 메뉴 {hiddenCount}개는 가격 필터 때문에 숨겼어요. 필터를 끄면 전체 메뉴를 볼 수 있어요.</p>}
+           </div>
+         })()}
          <div className="popup-actions"><button onClick={() => { setVoiceOpen(true); setRouteRequest(n => n+1) }}><Icon name="arrow" size={17}/>여기로 도보 안내</button><button onClick={() => route(selected)} aria-label="카카오맵 길찾기">카카오맵 ↗</button></div>
          <div className="finder-secondary-actions"><button onClick={() => phone(selected)}><Icon name="phone" size={15}/>전화번호 확인</button>{selected.merchantId && <button onClick={() => setUploadStore(selected)}>메뉴판 사진 올리기</button>}</div>
          <ReviewPanel key={selected.merchantId ?? selected.id} merchantId={selected.merchantId} merchantName={selected.name}/>
