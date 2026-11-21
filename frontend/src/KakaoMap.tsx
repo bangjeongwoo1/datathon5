@@ -6,20 +6,11 @@ import { selectCluster } from './mapClusters'
 import { markerSvg, currentLocationSvg } from './markerIcon'
 import { buildPersistedPositions, filterStoresInBounds } from './mapPositions'
 import type { ViewportBounds } from './mapPositions'
-import { requestCurrentLocation } from './userLocation'
+import { moveMapToCurrentLocation } from './mapCurrentLocation'
+import { DEFAULT_CENTER, getRegionCenter } from './regionCenters'
 
-const CITY_HALL={lat:37.8813,lng:127.73}
+const CITY_HALL = DEFAULT_CENTER
 
-const REGION_CENTERS: Record<string, { lat: number; lng: number }> = {
-  춘천시: { lat: 37.8813, lng: 127.73 },
-  원주시: { lat: 37.3422, lng: 127.9202 },
-  강릉시: { lat: 37.7519, lng: 128.8761 },
-  홍천군: { lat: 37.6974, lng: 127.8885 },
-}
-
-function getRegionCenter(region: string) {
-  return REGION_CENTERS[region] ?? CITY_HALL
-}
 
 const colors:Record<string,string>={'일반음식점':'#2563eb','편의점':'#15957e','베이커리/간식':'#dc9341','마트':'#7c3aed'}
 type Props = {
@@ -30,8 +21,11 @@ type Props = {
   onClusterSelect: (ids: number[]) => void
   centerRequest: number
   selectionRequest: number
-  onLocationChange?: (position: { lat: number; lng: number }) => void
   userLocation?: Coordinates | null
+  // "현재 위치로 이동"(◎) 버튼: 눌렀을 때 위치를 가져오는 일은 부모(App)가 하고, 지도는 받은 좌표로 이동만 한다.
+  onLocate?: () => void
+  locating?: boolean
+  locateTarget?: { lat: number; lng: number; seq: number } | null
 }
 type ReadyMap = {
   maps: MapsSDK
@@ -56,8 +50,10 @@ export default function KakaoMap({
   onClusterSelect,
   centerRequest,
   selectionRequest,
-  onLocationChange,
   userLocation,
+  onLocate,
+  locating = false,
+  locateTarget = null,
 }: Props) {
  const container=useRef<HTMLDivElement>(null)
  const markerEntries=useRef<{marker:MapMarker;store:Merchant}[]>([])
@@ -81,11 +77,9 @@ export default function KakaoMap({
   const host=container.current
   if(!host)return
   setError('');setReady(null);setViewport(null);setPhase('카카오맵을 불러오고 있습니다…')
-  setPhase('현재 위치와 카카오맵을 확인하고 있습니다…')
-  Promise.all([loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||''),requestCurrentLocation().catch(()=>null)]).then(async ([maps,initialLocation])=>{
+  loadKakaoMaps(import.meta.env.VITE_KAKAO_MAP_APP_KEY||'').then(async maps=>{
    idleMaps=maps
    if(cancelled)return
-   if (initialLocation) onLocationChange?.(initialLocation)
    const map = new maps.Map(host, {
   center: new maps.LatLng(CITY_HALL.lat, CITY_HALL.lng),
   level: 4,
@@ -110,7 +104,7 @@ export default function KakaoMap({
    if(!cancelled){setPhase('');setError('카카오맵을 불러오지 못했습니다. .env.local의 JavaScript 키, 현재 접속 주소의 SDK 도메인 등록, 카카오맵 사용 설정을 확인해 주세요.')}
   })
   return()=>{cancelled=true;if(regionTimer)window.clearTimeout(regionTimer);observer?.disconnect();if(idleMaps&&idleMap&&updateViewport)idleMaps.event.removeListener(idleMap,'idle',updateViewport);currentLocationMarker.current?.setMap(null);currentLocationMarker.current=null;clusterer?.clear();host.replaceChildren()}
- },[retry,onLocationChange])
+ },[retry])
 
  // Keep one SDK clusterer per map. Filtering changes its markers, not the instance.
  useEffect(()=>{
@@ -186,6 +180,12 @@ useEffect(() => {
   )
 }, [ready, region, centerRequest])
 
+// "현재 위치로 이동": 지역이 함께 바뀌어도(위 effect) 마지막에 내 위치로 이동한다. 이 effect 는 위 effect 보다 뒤에 있어야 한다.
+useEffect(() => {
+  if (!ready || !locateTarget) return
+  moveMapToCurrentLocation(ready.map, ready.maps, locateTarget)
+}, [ready, locateTarget])
+
 // 내 위치를 빨간 점으로 표시 (가맹점 핀과는 별도의 단일 마커, 위치가 바뀌면 이동만 시킴)
 useEffect(() => {
   if (!ready) return
@@ -219,17 +219,13 @@ useEffect(() => {
  {(phase||error)&&<div className="map-load-state" role={error?'alert':'status'}><strong>{error?'지도를 표시할 수 없습니다':'지도 연결 중'}</strong><p>{error||phase}</p>{error&&<button onClick={()=>setRetry(n=>n+1)}>다시 시도</button>}</div>}
  {ready&&<div className="map-controls">
 <button
-  aria-label="선택 지역 중심으로 이동"
-  title="선택 지역 중심으로 이동"
-  onClick={() => {
-    const center = getRegionCenter(region)
-    ready.map.setLevel(4)
-    ready.map.panTo(
-      new ready.maps.LatLng(center.lat, center.lng)
-    )
-  }}
+  aria-label="현재 위치로 이동"
+  title="현재 위치로 이동"
+  aria-busy={locating}
+  disabled={locating}
+  onClick={() => onLocate?.()}
 >
-  ◎
+  {locating ? '…' : '◎'}
 </button>
 <div><button aria-label="지도 확대" onClick={()=>changeZoom(-1)}>+</button><button aria-label="지도 축소" onClick={()=>changeZoom(1)}>−</button></div></div>}
  </>
