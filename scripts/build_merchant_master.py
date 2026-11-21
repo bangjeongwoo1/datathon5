@@ -36,8 +36,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from make_hours_csv import make_driver
 from naver_category import judge_by_category
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = BASE_DIR  # 이 브랜치에서는 4개 지역 CSV가 스크립트와 같은 폴더에 있음
+# 스크립트는 scripts/ 에, 입력·출력 CSV 는 data/주점판별/ 에 둔다.
+# (data/ 바로 아래에 두면 scripts/generate_merchants.py 가 A_ 로 시작하는 검토용 CSV 를 가맹점 원본으로 잘못 읽을 수 있다.)
+BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', '주점판별')
+SRC_DIR = BASE_DIR  # 4개 지역 CSV(강릉시·원주시·춘천시·홍천군)도 data/주점판별/ 에 있다
 
 SOURCE_FILES = ['강릉시.csv', '원주시.csv', '춘천시.csv', '홍천군.csv']
 

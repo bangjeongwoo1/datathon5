@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { selectCluster, scopeMerchants } from '../src/mapClusters.ts'
-import { merchants, filterMerchants } from '../src/merchants.ts'
+import { filterMerchants } from '../src/merchants.ts'
+import { merchants } from './sourceMerchants.ts'
 
 test('clicking a seven-marker cluster selects exactly seven original stores before navigating',()=>{
  const markers=Array.from({length:7},()=>({}))

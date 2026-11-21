@@ -1,6 +1,6 @@
-# 음성 길 안내와 가맹점 UI 통합
+# 음성 길 안내 (서버)
 
-최신 main의 PR #21 (`96eb350`)을 기준으로 기존 기능과 새 UI·음성 길 안내를 결합한 브랜치: `feat/voice-navigation-ui-integration-20261120`. 공유 main에 직접 푸시하거나 병합하지 않는다. 전처리·CSV·DB 스키마는 변경하지 않는다.
+"잇다야" 음성 길 안내가 쓰는 서버 API·환경변수·운영 확인 방법. 화면 쪽 흐름(호출어, 마이크, GPS, 전화 연결)과 휴대폰 확인 방법은 [frontend/README.md의 음성 길 안내](../frontend/README.md#음성-길-안내-잇다와-말하기)에 있다.
 
 ## 실행
 
@@ -65,8 +65,8 @@ TTS 제한·캐시는 서버 메모리에만 유지되므로 재시작 시 초�
 ### POST /api/guide-intent
 
 입력 `{text, hasDestination?, hasProposal?, previousSearch?, facts?}`.
-응답 action은 `search | closer | remaining | sign | yes | no | reply`.
-search에는 `query:{terms,category,budget}`가 포함되고 reply에는 `reply` 문자열이 포함된다.
+응답 action은 `search | closer | remaining | sign | yes | no | reply | navigate | call`.
+search에는 `query:{terms,category,budget}`가 포함되고 reply에는 `reply` 문자열이 포함된다. `navigate`는 "그 식당까지 어떻게 가?"처럼 이미 조회한 가게로 길 안내를 원하는 말, `call`은 전화 연결 요청이다.
 `sign`은 기존 클라이언트의 도착 확인 의도와 호환하기 위한 값이다. 간판 OCR 엔드포인트는 추가하지 않는다.
 
 ### POST /api/guide-answer
@@ -90,8 +90,9 @@ frontend에서 `npm ci`, `npm run build`, 개발 시 `npm run dev`를 사용한�
 - 마이크 상태/인식/답변은 닫힌 상담창 밖에서도 접근할 수 있다. 브라우저가 권한을 허용한 경우 호출어를 대기하며, 권한·자동재생이 차단되면 상태와 재시도 조작을 제공한다. HTTPS 또는 localhost가 필요하다. 백그라운드/잠금 화면 지속 수신과 모바일 무확인 자동발신을 보장하지 않는다.
 - 이번 작업에 간판 OCR, Gemini 음식 검색, 개인 PC 전용 음성 서버, 시연용 가격은 포함하지 않는다. main에 이미 있는 메뉴판 OCR은 그대로 유지한다.
 
-## 검증 및 팀 반영
+## 배포 후 확인
 
-구체적인 검증 결과와 변경 범위는 저장소 루트의 `VOICE_UI_INTEGRATION.md`를 참고한다. 이 브랜치 전체를 팀이 검토한 뒤 병합한다. 예전 개발 폴더의 server.js 또는 App.tsx로 main을 덮어쓰지 않는다. 원본 개발 폴더는 보존했다.
-
-팀 환경에서 서버 키/DB/Supabase/Kakao 도메인을 설정한 후 실제 마이크, 스피커, GPS 이동, Android와 iPhone의 전화 앱 확인을 별도로 수행해야 한다. 모의 브라우저 테스트는 실제 기기 검증을 대체하지 않는다.
+- Render 재배포 후 `/health`, `POST /api/guide-intent`, `POST /api/guide-answer`가 200을 돌려주는지 확인한다. 503이면 `GROQ_API_KEY`(AI_NOT_CONFIGURED), 502면 모델 응답 문제다. `GUIDE_TEXT_MODEL`을 비워 두면 기본 모델을 쓴다.
+- 전화 연결은 `merchant_crawl_staging."phoneNumber"`를 쓴다(0과 하이픈뿐인 값은 "번호 없음"). 운영 DB에 번호가 비어 있으면 "전화번호가 등록되어 있지 않다"고 안내한다. 전화 열 상태는 읽기 전용 진단 SQL `tools/check-phone-columns.sql`로 확인할 수 있다.
+- 서버 키·DB·Supabase·Kakao 도메인을 설정한 뒤 실제 마이크, 스피커, GPS 이동, Android·iPhone 전화 앱은 기기에서 따로 확인해야 한다. 모의 테스트는 실제 기기 검증을 대체하지 않는다.
+- 로컬에서 음성 흐름만 시험하는 `tools/start-local-voice.mjs`는 [frontend/README.md](../frontend/README.md#로컬-음성-실험)에 설명이 있다.

@@ -19,7 +19,9 @@ node --env-file=.env server.js
 |---|---|
 | `PORT`, `FRONTEND_URL` | 서버 포트, 프론트 주소(CORS) |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSL` | PostgreSQL 접속. Supabase는 transaction pooler(포트 6543)를 쓰고 `DB_SSL=true` |
-| `GROQ_API_KEY`, `TMAP_APP_KEY` | 음성 검색, 도보 경로 |
+| `GROQ_API_KEY`, `TMAP_APP_KEY` | 음성 인식(STT)·AI 해석/답변, 도보 경로. `GROQ_API_KEY`가 없으면 서버가 시작하지 않습니다 |
+| `GUIDE_TEXT_MODEL` | 선택. 음성 길 안내 AI 모델. 비우면 `qwen/qwen3.8-27b` |
+| `GUIDE_GOOGLE_TTS_ENABLED`, `GOOGLE_TTS_API_KEY`, `GUIDE_GOOGLE_TTS_VOICE`, `GUIDE_GOOGLE_TTS_DAILY_CHARS` | 음성 답변(Google Chirp). 자세한 값은 [NAVIGATION.md](NAVIGATION.md#환경변수) |
 | `GEMINI_API_KEY` | 메뉴판 OCR용. Google AI Studio에서 발급 |
 | `GEMINI_MODEL` | 사용할 모델. 비우면 `gemini-3.5-flash-lite` |
 | `GEMINI_FALLBACK_MODEL` | 선택. 혼잡·타임아웃·한도 초과 시 대신 쓸 모델 |
@@ -48,6 +50,7 @@ npm.cmd test
 | `POST /api/merchants/:merchantId/menu-submissions` | 누구나(로그인하면 제출자 기록) | 메뉴판 사진 제보(검수 대기로 저장) |
 | `GET /api/me` | 로그인 | 내 정보와 관리자 여부 |
 | `/api/admin/*` | 관리자 | 제보 목록·상세·사진·승인·반려 |
+| `POST /api/stt`, `/api/guide-intent`, `/api/guide-answer`, `/api/guide-speech`, `/api/walking-route`, `/api/walking-nearest` | 누구나 | 음성 길 안내: 음성 인식, 의도 해석, AI 답변, 음성 생성, 도보 경로. 요청·응답 형식과 오류 코드는 [NAVIGATION.md](NAVIGATION.md) |
 
 ## GET /api/merchants
 
