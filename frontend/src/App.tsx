@@ -23,7 +23,7 @@ import type { ReviewTagCode } from './reviewTags'
 import { straightDistanceMeters } from './merchantDistance'
 import { requestCurrentLocation } from './userLocation'
 import { matchedMenuNames, menuMatchLabel } from './menuSearch'
-import { loadSidebarOpen, saveSidebarOpen } from './finderSidebar'
+import { loadSidebarOpen, loadVoiceCardOpen, revealVoiceCard, saveSidebarOpen, saveVoiceCardOpen } from './finderSidebar'
 function Icon({name,size=20}:{name:string;size?:number}) {
  const paths:Record<string,ReactNode>={mic:<><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></>,map:<><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Z"/><path d="M9 3v16m6-14v16"/></>,list:<><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></>,search:<><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></>,pin:<><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,arrow:<><path d="m4 10 16-6-6 16-3-7-7-3Z"/><path d="m11 13 9-9"/></>,phone:<path d="m7 3 3 5-3 3c2 3 3 4 6 6l3-3 5 3c0 5-4 5-7 3C7 17 3 12 3 7c0-3 2-4 4-4Z"/>,clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,reset:<><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></>,target:<><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></>,info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-11v1"/></>,leaf:<><path d="M20 3C8 1 2 7 5 15c8 5 16-1 15-12Z"/><path d="M3 21 15 9"/></>,chevron:<path d="m7 10 5 5 5-5"/>,user:<><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.5-4 5-5.5 7-5.5S17.5 16 19 20"/></>}
  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]||paths.pin}</svg>
@@ -84,12 +84,23 @@ function App(){
  // 데스크톱에서 왼쪽 목록을 접었는지(마지막 상태를 기억한다). 모바일은 mobileView 로 따로 전환한다.
  const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen)
  const toggleSidebar = () => { const next = !sidebarOpen; setSidebarOpen(next); saveSidebarOpen(next) }
+ // 음성 안내 카드("마이크가 준비됐어요")를 접었는지. 접으면 지도만 보이고, 새 답변·오류가 오면 자동으로 펼친다.
+ const [voiceCardOpen, setVoiceCardOpen] = useState(loadVoiceCardOpen)
+ const toggleVoiceCard = () => { const next = !voiceCardOpen; setVoiceCardOpen(next); saveVoiceCardOpen(next) }
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>({ enabled: false, message: '마이크 연결 중', heard: '', answer: '', error: '' })
   const [routeRequest, setRouteRequest] = useState(0)
   const [listLimit, setListLimit] = useState(24)
   const [maximumPrice, setMaximumPrice] = useState<number | null>(null)
   const openVoice = useCallback(() => setVoiceOpen(true), [])
+  // 음성 안내 상태를 받는다. 접어 둔 카드는 새로운 답변이나 오류가 생길 때만 펼쳐서(저장된 선택은 그대로), 답을 놓치지 않게 한다.
+  const lastVoiceSignal = useRef('')
+  const handleVoiceStatus = useCallback((status: VoiceStatus) => {
+    setVoiceStatus(status)
+    const { signal, reveal } = revealVoiceCard(lastVoiceSignal.current, status)
+    lastVoiceSignal.current = signal
+    if (reveal) setVoiceCardOpen(true)
+  }, [])
 
 
 
@@ -320,8 +331,11 @@ const handleSortChange = async (mode: SortMode) => {
          {sortedVisible.length > listLimit && <button className="list-load-more" onClick={() => setListLimit(n => n+24)}>가맹점 더 보기 <span>＋</span></button>}
        </div>
        <p className="sidebar-bottom"><Icon name="info" size={13}/>방문 전 카드 사용 여부와 메뉴 가격을 확인해 주세요.</p>
+       <button type="button" className="sidebar-fold" onClick={toggleSidebar} aria-controls="finder-sidebar" aria-label="검색 카드 접고 지도만 보기">▲ 지도만 보기</button>
      </aside>
      <button type="button" className="sidebar-toggle" onClick={toggleSidebar} aria-expanded={sidebarOpen} aria-controls="finder-sidebar" aria-label={sidebarOpen ? '가맹점 목록 접기' : '가맹점 목록 펼치기'} title={sidebarOpen ? '목록 접기' : '목록 펼치기'}><span aria-hidden="true">{sidebarOpen ? '‹' : '›'}</span></button>
+     <button type="button" className="sidebar-reopen" onClick={toggleSidebar} aria-expanded={sidebarOpen} aria-controls="finder-sidebar">검색·필터 ▾</button>
+     {!voiceCardOpen && <button type="button" className="voice-reopen" onClick={toggleVoiceCard} aria-expanded={false} aria-controls="voice-live-status"><Icon name="mic" size={15}/>음성 안내</button>}
      <section className="map" aria-label={`${region} 카카오 가맹점 지도`}>
        <KakaoMap stores={filtered} region={region} selectedId={selected?.id??null} onSelect={selectStore} onClusterSelect={selectRegion} centerRequest={centerRequest} selectionRequest={selectionRequest} onLocationChange={receiveLocation} userLocation={userLocation}/>
        <button className="map-list-button" onClick={() => setMobileView(mobileView === 'list' ? 'map' : 'list')}><Icon name="list" size={17}/>{mobileView === 'list' ? '목록 닫기' : '목록 보기'} <b>{merchantLoadState === 'ready' ? sortedVisible.length.toLocaleString() : '…'}</b></button>
@@ -344,14 +358,14 @@ const handleSortChange = async (mode: SortMode) => {
      </section>
    </main>
    <footer className="footer"><span><strong>잇다</strong> · 강원특별자치도 아동급식카드 가맹점 안내</span><div><button onClick={e => { policyTrigger.current=e.currentTarget;setPolicy('이용 안내') }}>이용 안내</button><button onClick={e => { policyTrigger.current=e.currentTarget;setPolicy('개인정보 안내') }}>개인정보 안내</button><a href="/mealcard.html">가맹 권유 지도 ↗</a></div></footer>
-   <section className="voice-live-status" aria-label="실시간 음성 안내" data-enabled={voiceStatus.enabled}>
-     <div className="voice-live-heading"><span className="voice-live-dot" aria-hidden="true"/><strong>{voiceStatus.message}</strong></div>
+   <section className="voice-live-status" id="voice-live-status" aria-label="실시간 음성 안내" data-enabled={voiceStatus.enabled} data-collapsed={!voiceCardOpen}>
+     <div className="voice-live-heading"><span className="voice-live-dot" aria-hidden="true"/><strong>{voiceStatus.message}</strong><button type="button" className="voice-live-fold" onClick={toggleVoiceCard} aria-expanded={voiceCardOpen} aria-controls="voice-live-status" aria-label="음성 안내 창 접기">접기 ▾</button></div>
      <p>“잇다야, 근처 식당 찾아줘”라고 말하세요.</p><div className="voice-live-controls"><button onClick={() => document.getElementById('voice-mode-start')?.click()}>{voiceStatus.enabled ? '마이크 끄기' : '음성 준비'}</button><button onClick={openVoice}>상담 열기</button></div>
      <div role="status" aria-live="polite" aria-atomic="true">{voiceStatus.heard && <p className="voice-live-heard">들은 말 · {voiceStatus.heard}</p>}{voiceStatus.answer && <p className="voice-live-answer">잇다 · {voiceStatus.answer}</p>}{voiceStatus.error && <p className="voice-live-error">{voiceStatus.error}</p>}</div>
    </section>
    <div className={`voice-panel ${voiceOpen ? 'is-open' : ''}`} id="voice-panel" role="region" aria-label="잇다 음성 상담" inert={!voiceOpen}>
      <div className="voice-panel-heading"><span className="voice-avatar"><img src="/eatda-logo.png" alt=""/></span><div><h2>잇다와 말하기</h2><p>가맹점 찾기부터 길 안내까지</p></div><button onClick={() => setVoiceOpen(false)} aria-label="음성 상담 패널 닫기">×</button></div>
-     <div className="voice-panel-body"><VoiceGuide onStatus={setVoiceStatus} key={region} dataReady={merchantLoadState==='ready'} stores={merchants} selected={selected} maximumPrice={maximumPrice} onActivity={openVoice} routeRequest={routeRequest} onBudgetSearch={applyBudget} onSelect={store => {setQuery('');setSearch('');setCategory('전체');setCuisine(null);setClusterIds(null);setSelectedId(store.id);setSelectionRequest(value=>value+1);setMobileView('map')}}/></div>
+     <div className="voice-panel-body"><VoiceGuide onStatus={handleVoiceStatus} key={region} dataReady={merchantLoadState==='ready'} stores={merchants} selected={selected} maximumPrice={maximumPrice} onActivity={openVoice} routeRequest={routeRequest} onBudgetSearch={applyBudget} onSelect={store => {setQuery('');setSearch('');setCategory('전체');setCuisine(null);setClusterIds(null);setSelectedId(store.id);setSelectionRequest(value=>value+1);setMobileView('map')}}/></div>
    </div>
    <nav className="mobile-bottom-nav" aria-label="화면 전환"><button aria-label="가맹점 찾기" aria-current={!voiceOpen&&mobileView==='list' ? 'page' : undefined} onClick={() => {setMobileView('list');setVoiceOpen(false)}}><img src="/figma/nav-search.svg" alt=""/><span>찾기</span></button><button aria-label="지도 보기" aria-current={!voiceOpen&&mobileView==='map' ? 'page' : undefined} onClick={() => {setMobileView('map');setVoiceOpen(false)}}><Icon name="map" size={22}/><span>지도</span></button><button aria-label="잇다 음성 상담" aria-current={voiceOpen ? 'page' : undefined} onClick={showVoice}><img src="/figma/nav-chat.svg" alt=""/><span>잇다 음성</span></button></nav>
    {(notice||authError)&&<div className="toast" role="status"><Icon name="info" size={18}/>{notice||authError}<button aria-label="알림 닫기" onClick={()=>{setNotice('');clearAuthError()}}>×</button></div>}

@@ -63,3 +63,62 @@ test('접기 손잡이: 열림 상태와 이름을 알리고, 목록과 연결�
   // 접힘 스타일은 데스크톱(761px 이상)에서만 목록을 숨긴다.
   assert.match(css, /@media\(min-width:761px\)\{[^@]*data-sidebar='closed'\] \.sidebar\{[^}]*visibility:hidden/)
 })
+
+test('음성 안내 카드: 기본은 펼친 상태이고, 접은 상태를 따로 저장·복원한다(목록 상태와 섞이지 않는다)', async () => {
+  const { VOICE_CARD_STORAGE_KEY, loadVoiceCardOpen, saveVoiceCardOpen } = await import('../src/finderSidebar.ts')
+  const storage = memoryStorage()
+  assert.equal(loadVoiceCardOpen(storage), true)
+
+  saveVoiceCardOpen(false, storage)
+  assert.equal(storage.data.get(VOICE_CARD_STORAGE_KEY), 'closed')
+  assert.equal(loadVoiceCardOpen(storage), false)
+  assert.equal(loadSidebarOpen(storage), true, '목록 상태는 그대로 펼침이어야 한다')
+
+  saveSidebarOpen(false, storage)
+  saveVoiceCardOpen(true, storage)
+  assert.equal(loadSidebarOpen(storage), false)
+  assert.equal(loadVoiceCardOpen(storage), true)
+
+  assert.equal(loadVoiceCardOpen(brokenStorage), true)
+  assert.doesNotThrow(() => saveVoiceCardOpen(false, brokenStorage))
+})
+
+test('접어 둔 음성 카드: 새 답변·오류가 오면 펼치고, 같은 내용이 되풀이되거나 들은 말만 바뀌면 펼치지 않는다', async () => {
+  const { revealVoiceCard } = await import('../src/finderSidebar.ts')
+  const status = (over: Partial<{ heard: string; answer: string; error: string }> = {}) => ({ heard: '', answer: '', error: '', ...over })
+
+  let r = revealVoiceCard('', status())
+  assert.equal(r.reveal, false, '아무 내용 없는 초기 상태')
+
+  r = revealVoiceCard(r.signal, status({ heard: '근처 식당' }))
+  assert.equal(r.reveal, false, '들은 말만 있으면(답 전) 펼치지 않는다')
+
+  r = revealVoiceCard(r.signal, status({ heard: '근처 식당', answer: '가까운 곳을 찾았어요.' }))
+  assert.equal(r.reveal, true, '새 답변이 오면 펼친다')
+
+  const again = revealVoiceCard(r.signal, status({ heard: '근처 식당', answer: '가까운 곳을 찾았어요.' }))
+  assert.equal(again.reveal, false, '같은 답변이 되풀이돼도 사용자가 접은 카드를 다시 펼치지 않는다')
+
+  r = revealVoiceCard(again.signal, status({ heard: '근처 식당', answer: '가까운 곳을 찾았어요.', error: '재생에 실패했어요.' }))
+  assert.equal(r.reveal, true, '새 오류가 오면 펼친다')
+})
+
+test('모바일 지도 화면에서 검색 카드·음성 카드를 접는 버튼이 있고, 목록(찾기) 화면과 데스크톱에는 영향이 없다', () => {
+  const root = path.resolve(import.meta.dirname, '..')
+  const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8')
+  assert.match(app, /className="sidebar-fold"/)
+  assert.match(app, /className="sidebar-reopen"/)
+  assert.match(app, /className="voice-live-fold"/)
+  assert.match(app, /className="voice-reopen"/)
+  assert.match(app, /data-collapsed=\{!voiceCardOpen\}/)
+  assert.match(app, /aria-controls="voice-live-status"/)
+
+  const css = fs.readFileSync(path.join(root, 'src/FinderDesign.css'), 'utf8')
+  // 접힘은 모바일 "지도" 화면(data-view=map)에서만 목록 카드를 숨긴다.
+  assert.match(css, /@media\(max-width:760px\)\{[^@]*data-view=map\]\[data-sidebar='closed'\] \.sidebar\{[^}]*visibility:hidden/)
+  // 접기 버튼은 기본으로 숨기고, 모바일 지도 화면에서만 보인다.
+  assert.match(css, /\.finder-design \.sidebar-fold,\.finder-design \.sidebar-reopen\{display:none\}/)
+  assert.match(css, /data-view=map\] \.sidebar-fold\{display:flex/)
+  // 접힌 음성 카드는 숨긴다.
+  assert.match(css, /\.voice-live-status\[data-collapsed=true\]\{display:none\}/)
+})
