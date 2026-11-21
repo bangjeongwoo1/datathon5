@@ -324,7 +324,7 @@ const handleSortChange = async (mode: SortMode) => {
          <div className="store-order" aria-hidden="true">{sortedVisible.indexOf(store)+1}</div>
          <div className="store-card-body"><div className="store-top"><span className={`category-label ${color(store.category)}`}>{categoryNames[store.category] || store.category}</span><span className="status closed">영업 미확인</span>{(() => { const label = menuMatchLabel(matchedMenuNames(store, search)); return label ? <span className="menu-match-badge" title={matchedMenuNames(store, search).join(', ')}>{label}</span> : null })()}</div>
            <button className="store-title" aria-pressed={selectedId===store.id} onClick={() => { setSelectedId(store.id); setSelectionRequest(n => n+1); setMobileView('map') }}>{store.name}<span aria-hidden="true">↗</span></button>
-           {store.merchantId && reviewSummaries[store.merchantId] && <span className="store-rating">{reviewSummaries[store.merchantId].reviewCount > 0 ? `★ ${reviewSummaries[store.merchantId].avgRating?.toFixed(1)} · ${reviewSummaries[store.merchantId].reviewCount}개 평가` : '평가 없음'}</span>}<p className="store-address">{store.address}</p>{cuisine && <p className="cuisine-match-reason">세부 업종: {store.naverCuisine || store.detailCategory || store.rawCategory}</p>}{store.under10000 === 'Y' && <span className="under-ten-badge">만원 이하 식사 있음</span>}
+           {store.merchantId && reviewSummaries[store.merchantId] && <span className="store-rating">{reviewSummaries[store.merchantId].reviewCount > 0 ? `★ ${reviewSummaries[store.merchantId].avgRating?.toFixed(1)} · ${reviewSummaries[store.merchantId].reviewCount}개 평가` : '평가 없음'}</span>}<p className="store-address">{store.address}</p>{cuisine && <p className="cuisine-match-reason">세부 업종: {store.cuisine || store.detailCategory || store.rawCategory}</p>}{store.under10000 === 'Y' && <span className="under-ten-badge">만원 이하 식사 있음</span>}
            <p className={meal ? 'store-price' : 'store-price unconfirmed'}>{meal ? <>{meal.name}<strong>{meal.price.toLocaleString()}<small>원</small></strong>{meal.preview && <em>후보 가격</em>}</> : store.minMealPriceWon !== undefined ? `승인된 식사 최저 ${store.minMealPriceWon.toLocaleString()}원` : '메뉴·가격 확인 필요'}</p>
            <div className="store-actions"><button onClick={() => route(store)}><Icon name="arrow" size={14}/>길찾기</button><button onClick={() => phone(store)}><Icon name="phone" size={14}/>전화</button></div>
          </div></article> }))}
@@ -343,7 +343,7 @@ const handleSortChange = async (mode: SortMode) => {
          <div className="popup-title"><span className={`popup-icon ${color(selected.category)}`}><Icon name="pin" size={27}/></span><div><p>{selected.category}</p><h2>{selected.name}</h2></div></div>
          <div className="popup-info"><p><Icon name="pin" size={15}/>{selected.address}</p>{selected.phone && <p><Icon name="phone" size={15}/>{selected.phone}</p>}</div>
          <div className="finder-store-meta">
-           {selected.naverCuisine && <p>세부 업종 · {selected.naverCuisine}</p>}
+           {selected.cuisine && <p>세부 업종 · {selected.cuisine}</p>}
            {selected.businessHours?.weekday && <p>평일 · {selected.businessHours.weekday}</p>}
            {selected.businessHours?.saturday && <p>토요일 · {selected.businessHours.saturday}</p>}
            {selected.businessHours?.holiday && <p>공휴일 · {selected.businessHours.holiday}</p>}

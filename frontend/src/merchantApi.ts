@@ -14,7 +14,7 @@ type DbMerchant = {
   category: string
   source_category_code: string | null
   phone: string | null
-  naver_cuisine: string | null
+  cuisine: string | null
   naver_classification: string | null
 
   weekday_open: string | null
@@ -133,12 +133,12 @@ export async function loadRegionMerchants(
       category: toUiCategory(row.category),
       rawCategory: row.category,
       detailCategory:
-        row.naver_cuisine?.trim() ||
+        row.cuisine?.trim() ||
         row.source_category_code ||
         row.category,
 
-      ...(row.naver_cuisine?.trim()
-        ? { naverCuisine: row.naver_cuisine.trim() }
+      ...(row.cuisine?.trim()
+        ? { cuisine: row.cuisine.trim() }
         : {}),
 
       ...(row.naver_classification

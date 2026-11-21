@@ -33,7 +33,7 @@ export type MerchantRecord = {
   minMealPriceWon?: number
 
   // 네이버 크롤링 정보
-  naverCuisine?: string
+  cuisine?: string
   naverClassification?: string
   businessHours?: {
     weekday?: string

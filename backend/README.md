@@ -67,7 +67,7 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 | `latitude`, `longitude` | 글자로 저장된 좌표를 숫자로 변환(숫자가 아니면 비움) |
 | `category` | `Cuisine`으로 만든 큰 분류: 편의점, 마트·슈퍼, 반찬·식품, 제과·간식, 기타, 음식점. `Cuisine`이 비면(판별불가) 미분류 |
 | `phone` | `phoneNumber`. `000-0000-0000`처럼 0과 하이픈뿐인 값은 번호 없음(null) |
-| `naver_cuisine`, `naver_classification`, `address_check` | `Cuisine`, `네이버기반판별`, `주소확인` |
+| `cuisine`, `naver_classification`, `address_check` | `Cuisine`, `네이버기반판별`, `주소확인` |
 | `weekday_*`, `saturday_*`, `holiday_*` | 평일·토요일·**공휴일** 영업시간(원본에는 일요일이 없습니다) |
 | `in_under_10000`, `min_meal_price_won`, `confirmed_meals` | 승인된 메뉴 기준 판정과 확정 식사 메뉴 |
 | `menu_names` | 메뉴 이름 검색용. 승인된 메뉴 이름 전체(식사·사이드·음료·주류, 중복 제거). 승인된 메뉴가 없으면 `null` |

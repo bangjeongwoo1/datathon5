@@ -72,7 +72,7 @@ export function merchantListQueries({ region = '', search = '', limit = 100, off
       ${number('longitude')} AS longitude,
       ${CATEGORY_SQL} AS category,
       ${PHONE_SQL} AS phone,
-      ${text('Cuisine')} AS naver_cuisine,
+      ${text('Cuisine')} AS cuisine,
       ${text('네이버기반판별')} AS naver_classification,
       ${text('주소확인')} AS address_check,
       ${text('weekdayOperOpenHhmm')} AS weekday_open,

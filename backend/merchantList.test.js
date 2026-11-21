@@ -30,7 +30,7 @@ test('화면이 쓰는 이름으로 내려준다(지역·이름·주소·영업�
   const { dataSql } = merchantListQueries();
   for (const alias of [
     'region', 'name', 'address', 'latitude', 'longitude', 'category', 'phone',
-    'naver_cuisine', 'naver_classification', 'weekday_open', 'weekday_close',
+    'cuisine', 'naver_classification', 'weekday_open', 'weekday_close',
     'saturday_open', 'saturday_close', 'holiday_open', 'holiday_close', 'confirmed_meals',
   ]) {
     assert.match(dataSql, new RegExp(`AS ${alias}\\b`), alias);

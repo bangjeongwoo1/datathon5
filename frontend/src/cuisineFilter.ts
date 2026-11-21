@@ -30,8 +30,8 @@ function matchingTypes(detail: string | undefined): CuisineType[] {
  * 해당 정보가 없으면 추측하여 분류하지 않는다(메뉴판 데이터는 아직 미연동).
  */
 export function matchesCuisine(store: MerchantRecord, cuisine: CuisineType): boolean {
-  const naverMatches = matchingTypes(store.naverCuisine)
-  if (naverMatches.length) return naverMatches.includes(cuisine)
+  const cuisineMatches = matchingTypes(store.cuisine)
+  if (cuisineMatches.length) return cuisineMatches.includes(cuisine)
 
   const detailMatches = matchingTypes(store.detailCategory)
   if (detailMatches.length) return detailMatches.includes(cuisine)

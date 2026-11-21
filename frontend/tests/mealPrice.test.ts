@@ -25,7 +25,7 @@ test('merchant paging retains main review/menu identifiers and approved menu fac
       merchant_id: offset === '0' ? 'uuid-a' : 'uuid-b', region: '춘천',
       name: '검증용 가맹점', category: '음식점', address: '검증용 주소',
       latitude: 37.88, longitude: 127.73, phone: '033-000-0000',
-      naver_cuisine: '한식', naver_classification: '검증용',
+      cuisine: '한식', naver_classification: '검증용',
       weekday_open: '09:00', weekday_close: '20:00',
       in_under_10000: 'Y', min_meal_price_won: '9000',
       confirmed_meals: [{ name: '비빔밥', price: 9000 }],
