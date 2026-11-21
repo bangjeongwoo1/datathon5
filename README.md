@@ -111,7 +111,7 @@ npm.cmd ci
 npm.cmd run dev
 ```
 
-기본 접속 주소: `http://localhost:5173`
+기본 접속 주소: `http://localhost:5173` (첫 화면). 가맹점 지도는 `/finder.html`, 가맹 권유 지도는 `/mealcard.html`, 관리자 검수는 `/admin.html`입니다.
 
 카카오 지도 API 키의 허용 도메인 설정도 확인해야 합니다.
 

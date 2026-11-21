@@ -188,3 +188,28 @@
 }
 @media(max-width:760px){.finder-design .sidebar-toggle{display:none}}
 @media(prefers-reduced-motion:reduce){.finder-design .sidebar,.finder-design .split[data-sidebar='closed'] .sidebar,.finder-design .sidebar-toggle{transition:none}}
+
+/* ---- 모바일(760px 이하) 지도 화면: 검색 카드와 음성 안내 카드를 접어서 지도만 보기 ----
+   검색 카드는 지도 위에 떠 있어서, 위로 미끄러져 나가도 지도 크기는 바뀌지 않는다.
+   "찾기"(목록) 화면에서는 카드가 곧 내용이므로 접지 않는다. (data-view=map 일 때만 적용) */
+.finder-design .sidebar-fold,.finder-design .sidebar-reopen{display:none}
+@media(max-width:760px){
+  .finder-design .split[data-view=map] .sidebar-fold{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;min-height:40px;padding:0 12px;border-top:1px solid #e9ede5;background:#fafbf8;color:#4b5a4f;font-size:13px;font-weight:700}
+  .finder-design .sidebar-fold:hover{background:#eff5ff;color:#2563eb;filter:none}
+  .finder-design .sidebar{transition:transform .22s ease,opacity .18s ease,visibility 0s}
+  .finder-design .split[data-view=map][data-sidebar='closed'] .sidebar{transform:translateY(calc(-100% - 24px));opacity:0;visibility:hidden;pointer-events:none;transition:transform .22s ease,opacity .18s ease,visibility 0s .22s}
+  .finder-design .split[data-view=map][data-sidebar='closed'] .sidebar-reopen{display:inline-flex;align-items:center;gap:4px;position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:5;height:36px;padding:0 16px;border-radius:999px;background:#fff;color:#2f3f33;border:1px solid #cdd8cf;box-shadow:0 3px 12px #20351526;font-size:13px;font-weight:700}
+  .finder-design:has(.map-popup) .sidebar-reopen{display:none!important} /* 가맹점 정보 창이 열려 있을 때는 숨긴다 */
+}
+
+/* ---- 음성 안내 카드("마이크가 준비됐어요") 접기: 모든 화면 크기 ----
+   카드를 접으면 사라지고, 지도 오른쪽 아래에 작은 "음성 안내" 알약이 남는다.
+   모바일에서는 카드가 지도 아래 일반 흐름에 있어서 접으면 지도가 그만큼 넓어진다. */
+.finder-design .voice-live-heading{display:flex;align-items:center;gap:8px}
+.finder-design .voice-live-fold{margin-left:auto;flex:none;height:28px;padding:0 10px;border-radius:999px;border:1px solid #cad8ce;background:#fff;color:#4b6052;font-size:12px;font-weight:700;white-space:nowrap}
+.finder-design .voice-live-fold:hover{background:#eff5ff;color:#2563eb;filter:none}
+.finder-design .voice-live-status[data-collapsed=true]{display:none}
+.finder-design .voice-reopen{position:absolute;right:20px;bottom:20px;z-index:5;display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 15px;border-radius:999px;background:#fff;color:#2f3f33;border:1px solid #cad8ce;box-shadow:0 3px 12px #20351526;font-size:13px;font-weight:700}
+.finder-design .voice-reopen:hover{background:#eff5ff;color:#2563eb;filter:none}
+@media(max-width:760px){.finder-design .voice-reopen{right:12px;bottom:12px}}
+@media(prefers-reduced-motion:reduce){.finder-design .sidebar,.finder-design .split[data-view=map][data-sidebar='closed'] .sidebar{transition:none}}
