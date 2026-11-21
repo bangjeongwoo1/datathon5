@@ -15,7 +15,7 @@ VITE_SUPABASE_URL=https://프로젝트ref.supabase.co
 VITE_SUPABASE_ANON_KEY=본인_Supabase_anon_키
 ```
 
-`VITE_SUPABASE_*`는 구글 로그인에 필요합니다(없으면 화면이 뜨지 않습니다). anon(공개) 키만 쓰고 `service_role` 키는 넣지 않습니다. 백엔드 `.env`의 `SUPABASE_URL`, `SUPABASE_ANON_KEY`와 같은 값입니다. 로그인 없이 메뉴판 사진 올리기를 시험할 때만 `VITE_UPLOAD_REQUIRES_LOGIN=false`를 추가합니다(기본은 로그인 필요).
+`VITE_SUPABASE_*`는 구글 로그인에 필요합니다(없으면 화면이 뜨지 않습니다). anon(공개) 키만 쓰고 `service_role` 키는 넣지 않습니다. 백엔드 `.env`의 `SUPABASE_URL`, `SUPABASE_ANON_KEY`와 같은 값입니다. 로그인 없이 메뉴판 사진 올리기를 시험할 때만 `VITE_UPLOAD_REQUIRES_LOGIN=false`를 추가합니다(기본은 로그인 필요). 음성 답변은 기본으로 서버의 Google 음성(Chirp)을 쓰며, `VITE_GUIDE_GOOGLE_TTS=false`로 두면 브라우저 내장 음성을 씁니다.
 
 ```powershell
 npm install
@@ -66,6 +66,50 @@ npm run dev -- --port 5173 --strictPort
 - **페이지를 열 때는 위치 권한이 이미 허용된 경우에만** 자동으로 위치를 반영합니다. 처음 방문한 사람에게 묻지도 않고 권한 창을 띄우면 무심코 거부해서 이후 영구히 차단되는 경우가 많고, 예전에는 지도가 위치 응답을 최대 10초 기다린 뒤에야 떴기 때문입니다.
 - 길 안내(음성)의 위치(`src/guideLocation.ts`)는 걸어가며 쓰는 정밀 위치라 이 규칙과 별개로 GPS를 씁니다.
 
+## 음성 길 안내 (잇다와 말하기)
+
+가맹점 지도(`/finder.html`)에서 "잇다야"라고 부르고 말로 식당을 찾아 길 안내를 받습니다. 서버 API·환경변수·오류 코드는 [backend/NAVIGATION.md](../backend/NAVIGATION.md)에 있습니다.
+
+### 흐름
+1. **호출어**: "잇다야"를 부르면 듣기 시작합니다. 음성 인식(STT)과 직접 입력 모두 같은 규칙으로 호출어를 찾고, 잇따야·이따야 같은 발음과 앞뒤 따옴표·띄어쓰기도 허용합니다. (`src/voiceActivation.ts`)
+2. **검색과 답변**: "근처 만원 이하 식당 찾아줘" 같은 요청을 AI가 해석하고, 실제 가맹점 데이터와 승인된 메뉴·가격을 조회해 답합니다. AI가 실패하면 원인과 다시 묻는 방법을 안내하고, 미리 정해 둔 답을 AI 답처럼 대신 말하지 않습니다.
+3. **길 안내 동의**: 답변 끝에 "길 안내할까요?"라고 묻고, "응/알았어/안내해줘"라고 해야 경로를 조회합니다. 거절하면 시작하지 않습니다. 추천한 후보와 사용자가 실제로 고른 가게를 구분해서, 고르지 않은 가게를 "선택하신 식당"이라고 말하지 않습니다.
+   - "여기로 길 안내해줘", "두 번째 식당으로 안내해줘", "그 식당까지 어떻게 가?"처럼 이미 조회한 가게를 고르는 말은 바로 경로 조회로 이어집니다. 부정·가정 문장("안 갈래", "가면 어때")은 선택으로 보지 않습니다.
+4. **걸어가기**: TMAP 도보 경로를 따라 GPS로 진행 상황을 읽어 줍니다. 위치 오차가 크거나 경로를 벗어나면 방향 안내를 멈춥니다. (`src/walkingProgress.ts`)
+5. **도착 근처와 전화**: 가게 근처나 경로 끝에 오면 "입구는 확인하지 못했다"고 밝히고 전화 도움을 제안합니다. "응"이라고 해야 DB에 등록된 번호로 전화 앱을 엽니다. 번호가 없으면 그렇다고 안내하고 번호를 지어내지 않습니다. 휴대폰의 발신 확인을 건너뛰거나 통화 완료로 표시하지 않습니다. (`src/arrivalAssist.ts`)
+
+### 마이크와 위치
+- **작은 목소리도 인식**: 100ms 단위로 소리 크기를 재서, 기준(0.0035)을 넘는 프레임이 두 번 이어져야 말로 봅니다. 한 번 "딱" 하는 잡음은 무시합니다. 말이 끝나고 약 1.6초 조용하면 한 문장으로 끊고, 한 번에 최대 15초까지 녹음합니다. (`src/voiceActivity.ts`, `src/recordedHandsFree.ts`)
+- **답변하는 동안 녹음을 쉬었다가 같은 연결로 다시 듣습니다**. 마이크 권한을 매번 다시 묻지 않습니다. 음성 모드를 끄거나 페이지를 숨기거나 전화 앱으로 넘어가면 마이크를 닫고, 돌아오면 버튼 없이 다시 듣습니다.
+- 브라우저가 지원하는 녹음 형식(WebM/Opus, MP4, Ogg)을 골라 서버로 보냅니다. 권한 차단·다른 앱이 마이크 사용 중·마이크 없음·https 아님을 구분해 음성 안내 카드에 표시합니다. (`src/microphone.ts`)
+- **길 안내 위치**는 GPS 정밀 모드, 캐시 없이 받고 20초보다 오래된 값이나 오차가 큰 값은 버립니다. 페이지를 숨기면 위치 추적을 멈추고 돌아오면 다시 받습니다. (`src/guideLocation.ts`)
+- 페이지를 열면 마이크 권한을 바로 요청합니다("잇다야"를 항상 듣기 위해서). Claude 앱의 내장 브라우저처럼 마이크를 막는 환경에서는 "마이크 사용이 차단됐어요"가 표시됩니다.
+
+### 휴대폰에서 확인하기
+마이크·위치는 **https 주소(또는 localhost)**에서만 동작하므로 배포 주소로 확인합니다. 휴대폰의 `localhost`는 휴대폰 자신이라 PC의 개발 서버에 닿지 않습니다.
+1. 휴대폰 브라우저(크롬·삼성 인터넷)에서 배포 주소의 `/finder.html`을 엽니다. 카카오톡 같은 인앱 브라우저는 마이크·위치를 막는 경우가 많습니다.
+2. 휴대폰 설정의 인터넷 앱 마이크 권한과 사이트의 마이크·위치 권한을 허용합니다. 처음 한 번은 소리 재생 허용을 위해 화면을 눌러야 할 수 있습니다.
+3. "마이크가 준비됐어요"가 뜨면 "이따야, 근처 만원 이하 식당 찾아줘"라고 말하고, 답변 뒤 "이따야, 여기로 길 안내해줘"라고 말해 봅니다.
+4. 화면 잠금·앱 전환 중에 계속 듣거나 안내하는 것은 보장하지 않습니다.
+
+### 로컬 음성 실험
+DB를 설치하지 않고 음성 흐름만 시험할 때 씁니다(운영 배포는 하지 않습니다).
+
+```powershell
+node tools/start-local-voice.mjs
+```
+
+- 화면 `http://localhost:5173/finder.html`, 로컬 API `http://localhost:3091`
+- AI·음성(TTS)·경로는 로컬 백엔드 모듈과 기존 `backend/.env` 키를 쓰고, 가맹점 데이터와 STT는 기본으로 운영 API(`https://eatda.onrender.com`)를 씁니다. 다른 https API를 쓰려면 `LOCAL_DATA_API_BASE_URL`을 지정합니다.
+- 같은 포트에서 개발 서버가 돌고 있으면 먼저 끕니다. 비밀 키는 브라우저로 보내거나 화면에 출력하지 않습니다.
+
+### 관련 테스트
+```powershell
+node --experimental-strip-types --test tests/guideLocation.test.ts tests/arrivalAssist.test.ts tests/mobileMicrophone.test.ts tests/recordedHandsFree.test.ts tests/guideSpeech.test.ts tests/voiceActivation.test.ts tests/voiceActivity.test.ts
+```
+
+실제 휴대폰의 마이크·스피커·GPS 이동·전화 발신은 모의 테스트로 대신할 수 없어서 기기에서 직접 확인해야 합니다.
+
 ## 검색 (가게 이름·메뉴·주소)
 
 검색창은 가게 이름, 주소, 업종에 더해 **관리자가 승인한 메뉴 이름**으로도 가게를 찾습니다(`src/menuSearch.ts`).
@@ -111,6 +155,11 @@ npm run preview
 | `src/finderSidebar.ts` | 가맹점 지도의 목록 접힘 상태 저장·복원 |
 | `src/userLocation.ts`, `src/regionCenters.ts` | 현재 위치 요청(원인별 안내·재시도)과 가장 가까운 지역 고르기 |
 | `src/merchantApi.ts` | 백엔드 `/api/merchants`(메인 테이블 `merchant_crawl_staging`) 응답을 화면 모델로 변환. 영업시간은 평일·토요일·공휴일 |
+| `src/VoiceGuide.tsx`, `src/VoiceGuide.css` | 음성 길 안내 화면: 호출어·AI 대화·경로·도착/전화 연결 |
+| `src/recordedHandsFree.ts`, `src/voiceActivity.ts`, `src/microphone.ts` | 마이크 연결 유지·녹음 형식 선택, 말 시작/끝 감지 |
+| `src/voiceActivation.ts` | 호출어("잇다야") 찾기 |
+| `src/guideSpeech.ts` | 음성 답변 재생(Google Chirp 또는 브라우저 음성) |
+| `src/guideLocation.ts`, `src/walkingProgress.ts`, `src/arrivalAssist.ts` | 길 안내용 정밀 GPS, 경로 진행, 도착 근처 전화 제안 |
 | `src/VoiceSearch.tsx`, `src/voiceIntent.ts` | 녹음·음성 검색어 처리 |
 | `src/NearestVoice.tsx` | 현재 위치 기반 도보 거리·음성 안내 |
 | `src/apiUrl.ts` | 환경 변수 기반 API 주소 |

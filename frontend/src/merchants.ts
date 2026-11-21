@@ -1,13 +1,9 @@
-import { sourceMerchants } from './data/merchants.generated.ts'
-import { toMerchant } from './merchantData.ts'
 import type { MerchantRecord } from './merchantData.ts'
 import { matchesCuisine } from './cuisineFilter.ts'
 import type { CuisineType } from './cuisineFilter.ts'
 import { matchesSearch } from './menuSearch.ts'
 
 export type Merchant = MerchantRecord
-
-export const merchants: Merchant[] = sourceMerchants.map(toMerchant)
 
 export type Filters = {
   query: string

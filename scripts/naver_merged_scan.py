@@ -30,7 +30,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from make_hours_csv import make_driver, parse_hours
 from naver_category import road_token, judge_by_category
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 스크립트는 scripts/ 에, 입력·출력 CSV 는 data/주점판별/ 에 둔다.
+# (data/ 바로 아래에 두면 scripts/generate_merchants.py 가 A_ 로 시작하는 검토용 CSV 를 가맹점 원본으로 잘못 읽을 수 있다.)
+BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', '주점판별')
 
 # merge_review_targets.py가 만든 통합 대상 (업소 데이터 원본 + 업종기타_재분류검토
 # + 중복의심_검토 처리 결과). 없으면 merge_review_targets.py를 먼저 실행할 것.

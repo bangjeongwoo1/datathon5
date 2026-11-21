@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildPersistedPositions, filterStoresInBounds } from '../src/mapPositions.ts'
-import { merchants } from '../src/merchants.ts'
+import { merchants } from './sourceMerchants.ts'
 
 test('buildPersistedPositions excludes merchants without saved coordinates', () => {
   const located = merchants.find((merchant) => merchant.coordinates)

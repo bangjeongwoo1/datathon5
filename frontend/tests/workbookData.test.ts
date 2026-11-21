@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { merchants } from '../src/merchants.ts'
+import { merchants } from './sourceMerchants.ts'
 
 test('uses the generated workbook merchant list without unsupported phone data', () => {
   assert.ok(merchants.length > 4_000)

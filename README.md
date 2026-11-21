@@ -28,6 +28,19 @@
 - 승인된 메뉴 기준으로 "만원 이하 식사" 필터와 표시
 - 구글 로그인(Supabase Auth)과 관리자 전용 검수 화면
 
+## 폴더 구성
+
+| 폴더 | 내용 |
+|---|---|
+| `frontend/` | React 화면(첫 화면, 가맹점 지도, 음성 길 안내, 관리자 검수). [frontend/README.md](frontend/README.md) |
+| `backend/` | Express API 서버. [backend/README.md](backend/README.md), 음성 길 안내 API는 [backend/NAVIGATION.md](backend/NAVIGATION.md) |
+| `data/` | 원본 공공데이터·좌표 통합 CSV와 전처리 노트북 |
+| `data/주점판별/` | 술집 판별용 4개 지역 CSV와 검토 CSV(7번 스크립트의 입력·출력) |
+| `scripts/` | 데이터 가공 스크립트(가맹점 생성, 좌표 보완, 술집 판별) |
+| `tools/` | 로컬 음성 실험 실행기, 전화번호 열 진단 SQL |
+| `mealcard_data/` | 가맹 권유 지도 데이터와 코드(자체 폴더 구조 그대로 사용) |
+| `docs/` | API 문서와 설계 기록 |
+
 ## 2. 기술 스택
 
 | 구분 | 기술 |
@@ -40,7 +53,7 @@
 | Menu OCR | Gemini API |
 | Speech-to-Text | Groq API |
 | Walking Route | TMAP API |
-| Text-to-Speech | Web Speech API |
+| Text-to-Speech | Google Cloud TTS(Chirp), 실패·비활성 시 Web Speech API |
 
 ## 3. 프로젝트 실행 방법
 
@@ -165,9 +178,10 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 - DB 변경 사항은 웹페이지 새로고침 또는 지역 재조회 시 반영됩니다.
 - 일부 가맹점 좌표는 추정값이며 영업 여부와 카드 사용 가능 여부가 완전히 검증된 것은 아닙니다.
 - 메뉴 가격 필터는 별도 개발 예정입니다.
-- 술집 판별은 DB 반영 전, `merge_review_targets.py`(업소 원본 + 업종기타 재분류 + 중복의심 검토를 하나로 통합) →
-  `naver_merged_scan.py`(네이버 지도에서 업종·영업시간을 조회해 `주점.csv`/`검수필요.csv`/`비주점_업체목록.csv`로 분류)
-  순서로 CSV 단계에서 가공합니다. 영업시간 기준의 `midnight_classify.py`는 이와 별도로 운영되는 판별 로직입니다.
+- 술집 판별은 DB 반영 전, `scripts/merge_review_targets.py`(업소 원본 + 업종기타 재분류 + 중복의심 검토를 하나로 통합) →
+  `scripts/naver_merged_scan.py`(네이버 지도에서 업종·영업시간을 조회해 `주점.csv`/`검수필요.csv`/`비주점_업체목록.csv`로 분류)
+  순서로 CSV 단계에서 가공합니다. 영업시간 기준의 `scripts/midnight_classify.py`는 이와 별도로 운영되는 판별 로직입니다.
+  입력·출력 CSV는 모두 `data/주점판별/`에 있습니다. 단, `merge_review_targets.py`가 읽는 `A_지도용_검토상태포함.csv`는 저장소에 없으므로 따로 받아 그 폴더에 넣어야 합니다.
 - DB 비밀번호와 실제 API 키는 GitHub에 업로드하지 않습니다.
 
 ## 6. 프로젝트 협업
@@ -186,20 +200,24 @@ GET http://localhost:3001/api/merchants?region=춘천시&limit=1000&offset=0
 
 ### 실행
 
-```
-python build_merchant_master.py
+```powershell
+python scripts/build_merchant_master.py
 ```
 
-수집 결과는 업체 1건마다 `가맹점_수집_진행.csv`에 저장되며, 중단했다가 다시 실행하면
+스크립트는 `scripts/`에, 입력·출력 CSV는 `data/주점판별/`에 있습니다(어느 폴더에서 실행해도 같은 위치를 씁니다). 검토용 `A_*.csv`를 `data/` 바로 아래에 두면 `scripts/generate_merchants.py`가 가맹점 원본으로 잘못 읽을 수 있어 하위 폴더로 분리했습니다.
+
+수집 결과는 업체 1건마다 `data/주점판별/가맹점_수집_진행.csv`에 저장되며, 중단했다가 다시 실행하면
 이미 처리한 `merchant_id`는 건너뛰고 이어서 진행합니다. `merchant_id`는 4개 지역 CSV를
 합친 순서대로 한 번만 배정하므로, 수집 도중에는 4개 지역 CSV를 수정하지 마세요.
 
 ### 파일 구성
 
-- `build_merchant_master.py` — 메인 스크립트
-- `make_hours_csv.py` / `naver_category.py` — `build_merchant_master.py`가 가져다 쓰는
+- `scripts/build_merchant_master.py` — 메인 스크립트
+- `scripts/make_hours_csv.py` / `scripts/naver_category.py` — `build_merchant_master.py`가 가져다 쓰는
   크롤링 드라이버 생성, 업종 기반 주점 판별 함수가 들어있는 의존 모듈
-- `강릉시.csv` / `원주시.csv` / `춘천시.csv` / `홍천군.csv` — 입력 데이터 (중복·업종기타 처리 완료본)
+- `scripts/dedup_review.py` — `A_중복의심_검토.csv`의 중복 확인·제거(애매한 건은 사람 검수용 파일로 분리)
+- `data/주점판별/강릉시.csv` / `원주시.csv` / `춘천시.csv` / `홍천군.csv` — 입력 데이터 (중복·업종기타 처리 완료본)
+- `data/주점판별/A_*.csv`, `중복의심_검토_완료.csv` — 업종기타 재분류·주점 후보·중복 의심 검토 자료
 
 ### 필요 패키지
 
