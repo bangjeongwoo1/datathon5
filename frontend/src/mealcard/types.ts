@@ -1,4 +1,4 @@
-// public/mealcard/map-data.json 형식. 분석 폴더(급식카드 사각지대)의 6_코드/지도_만들기.py가 만든다.
+// public/mealcard/map-data*.json 형식. 춘천은 분석 폴더(급식카드 사각지대)의 6_코드/지도_만들기.py, 원주·강릉·홍천은 07_mealcard_시군확장/2_코드/시군_지도데이터.py가 만든다.
 export type Mode = '미포함' | '포함' // 편의점 가맹점을 가맹 원에 넣는지
 
 export interface School {
@@ -28,12 +28,16 @@ export interface RecSummary {
   권유식당있는학교: number
 }
 
-// 춘천시 경계(GeoJSON). 쓰는 만큼만 적는다.
+// 시군 경계(GeoJSON). 쓰는 만큼만 적는다.
 export interface Boundary {
   features: { geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] } }[]
 }
 
 export interface MapData {
+  city?: string // 시군 이름(예: 원주시). 춘천 데이터에는 없다
+  title?: string // 화면 제목
+  rules?: string // 고른 규칙 설명
+  sources?: string // 출처
   boundary: Boundary
   radii: number[]
   schoolR: number
@@ -43,5 +47,5 @@ export interface MapData {
   non: Place[]
   recs: Rec[]
   recSummary: RecSummary[]
-  dongs: { c: string; n: string }[] // 춘천 행정동(읍·면·동) 25곳
+  dongs: { c: string; n: string }[] // 시군 행정동(읍·면·동)
 }
